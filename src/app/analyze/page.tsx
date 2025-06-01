@@ -1,689 +1,669 @@
-'use client';
+"use client";
 
-import { useState, useRef, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import Webcam from 'react-webcam';
-import { supabase } from '@/lib/supabase';
-import { BiteAnalyzer, BiteAnalysisVisualizer, BiteAnalysisUtils } from '@/lib/bite-analysis';
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import Webcam from "react-webcam";
+import { supabase } from "@/lib/supabase";
+import Image from "next/image";
+import type { User } from "@supabase/supabase-js";
+
+// Define structure for analysis results
+interface AnalysisResults {
+  id?: string;
+  created_at?: string;
+  image_url?: string;
+  tooth_color: { code: string; hex: string };
+  gum_color: { code: string; hex: string };
+  notes?: string;
+}
+
+// Define available camera facing modes
+type FacingMode = "user" | "environment";
 
 export default function AnalyzePage() {
-  const [captureMode, setCaptureMode] = useState<'camera' | 'upload'>('camera');
+  const [captureMode, setCaptureMode] = useState<"camera" | "upload">("camera");
   const [image, setImage] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [results, setResults] = useState<any>(null);
+  const [results, setResults] = useState<AnalysisResults | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [user, setUser] = useState<any>(null);
-  const [showBiteAnalysis, setShowBiteAnalysis] = useState(false);
-  const [biteAnalysisResults, setBiteAnalysisResults] = useState<any>(null);
-  const [biteAnalyzing, setBiteAnalyzing] = useState(false);
-  
+  const [user, setUser] = useState<User | null>(null);
+  const [webcamDimensions, setWebcamDimensions] = useState({
+    width: 640,
+    height: 480,
+  });
+  const [apiKeyMissingError, setApiKeyMissingError] = useState(false);
+  const [facingMode, setFacingMode] = useState<FacingMode>("user"); // State for camera facing mode
+  const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
+
   const webcamRef = useRef<Webcam>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const biteAnalyzerRef = useRef<BiteAnalyzer | null>(null);
-  const biteVisualizerRef = useRef<BiteAnalysisVisualizer | null>(null);
-  
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const router = useRouter();
 
-  // Verificar autenticação
+  // Check authentication
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session) {
-        router.push('/login');
+        router.push("/login");
         return;
       }
       setUser(session.user);
     };
-
     checkAuth();
   }, [router]);
 
-  // Inicializar analisador de mordida
+  // Check for multiple cameras
   useEffect(() => {
-    if (showBiteAnalysis && !biteAnalyzerRef.current) {
-      const initBiteAnalyzer = async () => {
-        const analyzer = new BiteAnalyzer();
-        await analyzer.initialize();
-        biteAnalyzerRef.current = analyzer;
-      };
-      
-      initBiteAnalyzer();
-    }
-    
-    if (showBiteAnalysis && canvasRef.current && !biteVisualizerRef.current) {
-      biteVisualizerRef.current = new BiteAnalysisVisualizer(canvasRef.current);
-    }
-  }, [showBiteAnalysis]);
+    navigator.mediaDevices?.enumerateDevices().then((devices) => {
+      const videoInputs = devices.filter(
+        (device) => device.kind === "videoinput"
+      );
+      setHasMultipleCameras(videoInputs.length > 1);
+    });
+  }, []);
 
-  // Capturar foto da webcam
-  const captureImage = () => {
-    if (webcamRef.current) {
-      const imageSrc = webcamRef.current.getScreenshot();
-      setImage(imageSrc);
-    }
-  };
-
-  // Lidar com upload de arquivo
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (event.target?.result) {
-        setImage(event.target.result as string);
+  // Adjust webcam dimensions based on container
+  useEffect(() => {
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        const containerWidth = containerRef.current.offsetWidth;
+        // Use a common aspect ratio, adjust if needed
+        const aspectRatio = window.innerWidth < 768 ? 9 / 16 : 16 / 9; // Portrait on mobile, landscape on desktop
+        const calculatedHeight = containerWidth / aspectRatio;
+        const finalWidth = Math.max(containerWidth, 320);
+        const finalHeight = Math.max(calculatedHeight, 240);
+        setWebcamDimensions({ width: finalWidth, height: finalHeight });
       }
     };
-    reader.readAsDataURL(file);
-  };
 
-  // Analisar imagem para cor dental
-  const analyzeImage = async () => {
-    if (!image) return;
-    
-    setAnalyzing(true);
-    setError(null);
-    
-    try {
-      // Simular análise de cor dental
-      // Em produção, isso seria uma chamada API para processamento de imagem
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Resultados simulados
-      const simulatedResults = {
-        tooth_color: {
-          code: 'A2',
-          hex: '#E8D9B0'
-        },
-        gum_color: {
-          code: 'TG-3',
-          hex: '#E58E8E'
+    updateDimensions();
+    window.addEventListener("resize", updateDimensions);
+    return () => window.removeEventListener("resize", updateDimensions);
+  }, [captureMode]); // Re-run when capture mode changes
+
+  // --- Image Handling ---
+
+  const captureImage = useCallback(() => {
+    if (webcamRef.current) {
+      const imageSrc = webcamRef.current.getScreenshot();
+      if (imageSrc) {
+        setImage(imageSrc);
+        setResults(null);
+        setError(null);
+        setApiKeyMissingError(false);
+      } else {
+        setError("Não foi possível capturar a imagem da webcam.");
+      }
+    }
+  }, []);
+
+  const handleFileUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        setError("Por favor, selecione um arquivo de imagem.");
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        // Limit upload size (e.g., 5MB)
+        setError("Arquivo muito grande. O limite é 5MB.");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setImage(event.target.result as string);
+          setResults(null);
+          setError(null);
+          setApiKeyMissingError(false);
+        } else {
+          setError("Não foi possível ler o arquivo de imagem.");
         }
       };
-      
-      setResults(simulatedResults);
-      
-      // Upload da imagem para o Supabase Storage
-      const imageFile = await fetch(image).then(res => res.blob());
-      const fileExt = 'jpg';
-      const fileName = `${Date.now()}.${fileExt}`;
+      reader.onerror = () => {
+        setError("Erro ao ler o arquivo de imagem.");
+      };
+      reader.readAsDataURL(file);
+    },
+    []
+  );
+
+  // Function to switch camera
+  const switchCamera = () => {
+    setFacingMode((prevMode) => (prevMode === "user" ? "environment" : "user"));
+  };
+
+  // --- Analysis Logic (Integrate DeepSeek in Step 6) ---
+  const analyzeImage = async () => {
+    if (!image || !user) return;
+
+    setAnalyzing(true);
+    setError(null);
+    setApiKeyMissingError(false);
+    setResults(null);
+
+    try {
+      // 1. Call the backend API (Update this in Step 6 for DeepSeek)
+      console.log("Chamando API /api/analyze-dental-color...");
+      const response = await fetch("/api/analyze-dental-color", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: image.split(",")[1] }),
+      });
+
+      const analysisResult = await response.json();
+
+      if (!response.ok) {
+        // Check for specific API key error (Update error message for DeepSeek)
+        if (
+          analysisResult.error &&
+          (analysisResult.error.includes(
+            "Chave da API OpenAI não configurada"
+          ) ||
+            analysisResult.error.includes(
+              "Chave da API DeepSeek não configurada"
+            ))
+        ) {
+          setApiKeyMissingError(true);
+          setError(
+            "A análise por IA não está configurada. Verifique a chave da API no servidor."
+          );
+          setAnalyzing(false);
+          return;
+        }
+        // Check for model deprecation error (Update for DeepSeek if needed)
+        if (
+          analysisResult.error &&
+          analysisResult.error.includes("deprecated")
+        ) {
+          setError(
+            "O modelo de IA configurado está desatualizado. Contate o suporte."
+          );
+          setAnalyzing(false);
+          return;
+        }
+        throw new Error(
+          analysisResult.error ||
+            `Falha na análise de cor (HTTP ${response.status})`
+        );
+      }
+
+      console.log("Resultado da análise de cor:", analysisResult);
+
+      const analyzedResultsData: AnalysisResults = {
+        tooth_color: {
+          code: analysisResult.toothColorCode,
+          hex: analysisResult.toothColorHex,
+        },
+        gum_color: {
+          code: analysisResult.gumColorCode,
+          hex: analysisResult.gumColorHex,
+        },
+      };
+
+      // 2. Upload the original image to Supabase Storage
+      console.log("Fazendo upload da imagem para o Supabase...");
+      const imageBlob = await fetch(image).then((res) => res.blob());
+      const fileExt = imageBlob.type.split("/")[1] || "jpg";
+      const fileName = `${user.id}_${Date.now()}.${fileExt}`;
       const filePath = `${user.id}/${fileName}`;
-      
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('dental_images')
-        .upload(filePath, imageFile);
-        
-      if (uploadError) throw uploadError;
-      
-      // Obter URL pública da imagem
-      const { data: { publicUrl } } = supabase.storage
-        .from('dental_images')
+
+      const { error: uploadError } = await supabase.storage
+        .from("dental_images") // Ensure this bucket exists
+        .upload(filePath, imageBlob, { upsert: true });
+
+      if (uploadError)
+        throw new Error(`Erro no upload da imagem: ${uploadError.message}`);
+
+      // 3. Get public URL of the uploaded image
+      const { data: urlData } = supabase.storage
+        .from("dental_images")
         .getPublicUrl(filePath);
-      
-      // Salvar análise no banco de dados
-      const { data: analysisData, error: analysisError } = await supabase
-        .from('dental_analyses')
+
+      if (!urlData?.publicUrl)
+        throw new Error("Não foi possível obter a URL pública da imagem.");
+      const publicUrl = urlData.publicUrl;
+      console.log("URL pública da imagem:", publicUrl);
+
+      // 4. Save the analysis results to the database
+      console.log("Salvando análise no banco de dados...");
+      const { data: savedAnalysis, error: analysisError } = await supabase
+        .from("dental_analyses")
         .insert({
           user_id: user.id,
           image_url: publicUrl,
-          tooth_color_code: simulatedResults.tooth_color.code,
-          tooth_color_hex: simulatedResults.tooth_color.hex,
-          gum_color_code: simulatedResults.gum_color.code,
-          gum_color_hex: simulatedResults.gum_color.hex,
-          notes: ''
+          tooth_color_code: analyzedResultsData.tooth_color.code,
+          tooth_color_hex: analyzedResultsData.tooth_color.hex,
+          gum_color_code: analyzedResultsData.gum_color.code,
+          gum_color_hex: analyzedResultsData.gum_color.hex,
         })
         .select()
         .single();
-        
-      if (analysisError) throw analysisError;
-      
-      // Atualizar resultados com dados do banco
+
+      if (analysisError)
+        throw new Error(`Erro ao salvar análise: ${analysisError.message}`);
+
+      console.log("Análise salva com sucesso:", savedAnalysis);
+
+      // 5. Update the state with the final results
       setResults({
-        ...simulatedResults,
-        id: analysisData.id,
-        created_at: analysisData.created_at
+        ...analyzedResultsData,
+        id: savedAnalysis.id,
+        image_url: publicUrl,
+        created_at: savedAnalysis.created_at,
       });
-      
     } catch (error: any) {
-      console.error('Erro ao analisar imagem:', error);
-      setError('Não foi possível analisar a imagem. Tente novamente.');
+      console.error("Erro durante o processo de análise:", error);
+      if (!apiKeyMissingError) {
+        setError(
+          error.message || "Ocorreu um erro inesperado durante a análise."
+        );
+      }
     } finally {
       setAnalyzing(false);
     }
   };
 
-  // Analisar mordida com IA
-  const analyzeBite = async () => {
-    if (!image || !biteAnalyzerRef.current) return;
-    
-    setBiteAnalyzing(true);
-    setError(null);
-    
-    try {
-      // Criar elemento de imagem para análise
-      const imgElement = new Image();
-      imgElement.src = image;
-      
-      // Esperar carregamento da imagem
-      await new Promise((resolve) => {
-        imgElement.onload = resolve;
-      });
-      
-      // Analisar imagem com detector facial
-      const analysisResults = await biteAnalyzerRef.current.analyzeFace(imgElement);
-      
-      if (!analysisResults.success) {
-        throw new Error(analysisResults.error || 'Falha na análise facial');
-      }
-      
-      // Visualizar resultados no canvas
-      if (biteVisualizerRef.current) {
-        biteVisualizerRef.current.drawAnalysisResults(imgElement, analysisResults);
-      }
-      
-      // Formatar resultados para armazenamento
-      const formattedResults = BiteAnalysisUtils.formatAnalysisForStorage(analysisResults);
-      const recommendations = BiteAnalysisUtils.generateRecommendations(analysisResults);
-      
-      setBiteAnalysisResults({
-        ...formattedResults,
-        recommendations
-      });
-      
-      // Se já existe uma análise dental, salvar e vincular análise de mordida
-      if (results && results.id) {
-        // Upload da imagem de análise de mordida (captura do canvas)
-        const canvasImage = canvasRef.current?.toDataURL('image/jpeg');
-        if (canvasImage) {
-          const imageFile = await fetch(canvasImage).then(res => res.blob());
-          const fileName = `bite_${Date.now()}.jpg`;
-          const filePath = `${user.id}/${fileName}`;
-          
-          const { data: uploadData, error: uploadError } = await supabase.storage
-            .from('dental_images')
-            .upload(filePath, imageFile);
-            
-          if (uploadError) throw uploadError;
-          
-          // Obter URL pública da imagem
-          const { data: { publicUrl } } = supabase.storage
-            .from('dental_images')
-            .getPublicUrl(filePath);
-          
-          // Salvar análise de mordida no banco de dados
-          const { data: biteData, error: biteError } = await supabase
-            .from('bite_analyses')
-            .insert({
-              user_id: user.id,
-              image_url: publicUrl,
-              midline_angle: formattedResults?.midline?.angle || 0,
-              midline_confidence: formattedResults?.midline?.confidence || 0,
-              face_shape: formattedResults?.faceShape?.shape || 'unknown',
-              face_shape_confidence: formattedResults?.faceShape?.confidence || 0,
-              central_incisors_width: formattedResults?.dentalProportions?.centralIncisorsWidth || 0,
-              lateral_incisors_width: formattedResults?.dentalProportions?.lateralIncisorsWidth || 0,
-              canines_width: formattedResults?.dentalProportions?.caninesWidth || 0,
-              proportions_confidence: formattedResults?.dentalProportions?.confidence || 0,
-              recommendations: recommendations || []
-            })
-            .select()
-            .single();
-            
-          if (biteError) throw biteError;
-          
-          // Vincular análise de mordida à análise dental
-          const { error: linkError } = await supabase
-            .from('dental_analyses')
-            .update({ bite_analysis_id: biteData.id })
-            .eq('id', results.id);
-            
-          if (linkError) throw linkError;
-          
-          // Atualizar resultados com ID da análise
-          setBiteAnalysisResults({
-            ...formattedResults,
-            recommendations,
-            id: biteData.id
-          });
-        }
-      }
-      
-    } catch (error: any) {
-      console.error('Erro ao analisar mordida:', error);
-      setError('Não foi possível analisar a mordida. Tente novamente.');
-    } finally {
-      setBiteAnalyzing(false);
-    }
-  };
+  // --- Navigation and Reset ---
 
-  // Compartilhar no feed
-  const shareToFeed = async () => {
-    if (!results) return;
-    
-    try {
-      // Criar post no feed
-      const { data, error } = await supabase
-        .from('posts')
-        .insert({
-          user_id: user.id,
-          dental_analysis_id: results.id,
-          bite_analysis_id: biteAnalysisResults?.id,
-          image_url: image,
-          description: `Análise dental: ${results.tooth_color.code} (dente), ${results.gum_color.code} (gengiva)${
-            biteAnalysisResults ? `, formato do rosto: ${biteAnalysisResults.faceShape.shape}` : ''
-          }`
-        })
-        .select()
-        .single();
-        
-      if (error) throw error;
-      
-      // Redirecionar para o feed
-      router.push('/feed');
-      
-    } catch (error) {
-      console.error('Erro ao compartilhar:', error);
-      setError('Não foi possível compartilhar no feed. Tente novamente.');
-    }
-  };
-
-  // Voltar para o dashboard
   const goToDashboard = () => {
-    router.push('/dashboard');
+    router.push("/dashboard");
   };
 
-  // Reiniciar análise
   const resetAnalysis = () => {
     setImage(null);
     setResults(null);
-    setBiteAnalysisResults(null);
-    setShowBiteAnalysis(false);
     setError(null);
+    setApiKeyMissingError(false);
+    setAnalyzing(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  // --- Sharing Logic (Implement in Step 10) ---
+  const shareToFeed = async () => {
+    if (!results?.id || !user || !results.image_url) {
+      setError("Análise ou imagem não encontrada para compartilhar.");
+      return;
+    }
+    console.log("Preparando para compartilhar no feed:", results);
+    let description = `Análise de cor: Dente ${results.tooth_color.code}, Gengiva ${results.gum_color.code}.`;
+
+    try {
+      const { error: postError } = await supabase.from("posts").insert({
+        user_id: user.id,
+        dental_analysis_id: results.id,
+        image_url: results.image_url,
+        description: description,
+      });
+      if (postError) throw postError;
+      console.log("Post criado com sucesso!");
+      router.push("/feed");
+    } catch (error: any) {
+      console.error("Erro ao criar post:", error);
+      setError(error.message || "Não foi possível compartilhar no feed.");
+    }
+  };
+
+  // --- Render Logic ---
+
+  // Dynamic video constraints based on facingMode
+  const videoConstraints = {
+    width: webcamDimensions.width,
+    height: webcamDimensions.height,
+    facingMode: facingMode,
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Cabeçalho */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-gray-900">Análise Dental</h1>
-          <button 
+    <div className="min-h-screen bg-gray-100 pb-6">
+      {/* Header */}
+      <header className="bg-white shadow-sm sticky top-0 z-10">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
+          <h1 className="text-lg sm:text-xl font-bold text-gray-900">
+            Análise Dental
+          </h1>
+          <button
             onClick={goToDashboard}
-            className="text-gray-600"
+            className="text-gray-600 hover:text-gray-800 p-1"
+            aria-label="Fechar análise"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.5}
+              stroke="currentColor"
+              className="w-6 h-6"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 18 18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
       </header>
 
-      {/* Conteúdo principal */}
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* Main Content */}
+      <main className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Error/Info Messages */}
         {error && (
-          <div className="bg-red-100 text-red-700 p-4 rounded-md mb-6">
-            {error}
+          <div
+            className={`border text-sm px-4 py-3 rounded relative mb-6 ${
+              apiKeyMissingError
+                ? "bg-yellow-100 border-yellow-400 text-yellow-700"
+                : "bg-red-100 border-red-400 text-red-700"
+            }`}
+            role="alert"
+          >
+            <strong className="font-bold">
+              {apiKeyMissingError ? "Aviso:" : "Erro:"}{" "}
+            </strong>
+            <span className="block sm:inline">{error}</span>
+            <button
+              onClick={() => {
+                setError(null);
+                setApiKeyMissingError(false);
+              }}
+              className="absolute top-0 bottom-0 right-0 px-4 py-3"
+              aria-label="Fechar"
+            >
+              <svg
+                className={`fill-current h-6 w-6 ${
+                  apiKeyMissingError ? "text-yellow-500" : "text-red-500"
+                }`}
+                role="button"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+              >
+                <title>Fechar</title>
+                <path d="M14.348 14.849a1.2 1.2 0 0 1-1.697 0L10 11.819l-2.651 3.029a1.2 1.2 0 1 1-1.697-1.697l2.758-3.15-2.759-3.152a1.2 1.2 0 1 1 1.697-1.697L10 8.183l2.651-3.031a1.2 1.2 0 1 1 1.697 1.697l-2.758 3.152 2.758 3.15a1.2 1.2 0 0 1 0 1.698z" />
+              </svg>
+            </button>
           </div>
         )}
 
-        {!image ? (
+        {/* Step 1: Capture or Upload */}
+        {!image && (
           <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="p-6">
-              <h2 className="text-lg font-medium text-gray-900 mb-4">Capturar Imagem</h2>
-              
-              {/* Seleção de modo de captura */}
-              <div className="flex border border-gray-300 rounded-md overflow-hidden mb-6">
+            <div className="p-4 sm:p-6">
+              <h2 className="text-base sm:text-lg font-medium text-gray-900 mb-4">
+                1. Capturar ou Enviar Imagem
+              </h2>
+              <div className="flex border border-gray-300 rounded-md overflow-hidden mb-4 sm:mb-6 max-w-xs mx-auto">
                 <button
-                  onClick={() => setCaptureMode('camera')}
-                  className={`flex-1 py-2 px-4 text-center ${
-                    captureMode === 'camera' 
-                      ? 'bg-blue-600 text-white' 
-                      : 'bg-white text-gray-700 hover:bg-gray-50'
+                  onClick={() => setCaptureMode("camera")}
+                  className={`flex-1 py-2 px-3 text-center text-xs sm:text-sm transition-colors duration-200 ${
+                    captureMode === "camera"
+                      ? "bg-blue-600 text-white"
+                      : "bg-white text-gray-700 hover:bg-gray-50"
                   }`}
                 >
-                  Usar Câmera
+                  Câmera
                 </button>
                 <button
-                  onClick={() => setCaptureMode('upload')}
-                  className={`flex-1 py-2 px-4 text-center ${
-                    captureMode === 'upload' 
-                      ? 'bg-blue-600 text-white' 
-                      : 'bg-white text-gray-700 hover:bg-gray-50'
+                  onClick={() => setCaptureMode("upload")}
+                  className={`flex-1 py-2 px-3 text-center text-xs sm:text-sm transition-colors duration-200 ${
+                    captureMode === "upload"
+                      ? "bg-blue-600 text-white"
+                      : "bg-white text-gray-700 hover:bg-gray-50"
                   }`}
                 >
-                  Enviar Foto
+                  Upload
                 </button>
               </div>
-              
-              {/* Câmera ou upload */}
-              {captureMode === 'camera' ? (
-                <div className="aspect-video bg-black rounded-lg overflow-hidden relative">
-                  <Webcam
-                    audio={false}
-                    ref={webcamRef}
-                    screenshotFormat="image/jpeg"
-                    videoConstraints={{
-                      facingMode: "user"
-                    }}
-                    className="w-full h-full object-cover"
-                  />
-                  <button
-                    onClick={captureImage}
-                    className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-white rounded-full p-3 shadow-lg"
+
+              <div ref={containerRef} className="mb-4 sm:mb-6">
+                {captureMode === "camera" ? (
+                  <div
+                    className="bg-black rounded-lg overflow-hidden relative mx-auto border border-gray-300"
+                    style={{ maxWidth: `${webcamDimensions.width}px` }}
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
+                    <Webcam
+                      audio={false}
+                      ref={webcamRef}
+                      screenshotFormat="image/jpeg"
+                      videoConstraints={videoConstraints} // Use dynamic constraints
+                      width={webcamDimensions.width}
+                      height={webcamDimensions.height}
+                      className="block w-full h-auto rounded-lg"
+                      mirrored={facingMode === "user"} // Mirror only front camera
+                      key={facingMode} // Force re-render on camera switch
+                    />
+
+                    <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-4">
+                      {/* Capture Button */}
+                      <button
+                        onClick={captureImage}
+                        className="bg-white rounded-full p-3 shadow-lg hover:bg-gray-100 transition-colors duration-200 ring-2 ring-blue-500"
+                        aria-label="Capturar foto"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          strokeWidth={1.5}
+                          stroke="currentColor"
+                          className="w-6 h-6 sm:w-7 sm:h-7 text-blue-600"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z"
+                          />
+                        </svg>
+                      </button>
+                      {/* Switch Camera Button (only if multiple cameras detected) */}
+                      {hasMultipleCameras && (
+                        <button
+                          onClick={switchCamera}
+                          className="bg-white rounded-full p-3 shadow-lg hover:bg-gray-100 transition-colors duration-200 ring-1 ring-gray-400"
+                          aria-label="Alternar câmera"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            strokeWidth={1.5}
+                            stroke="currentColor"
+                            className="w-6 h-6 sm:w-7 sm:h-7 text-gray-600"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 sm:p-10 min-h-[240px]">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                      className="w-10 h-10 sm:w-12 sm:h-12 text-gray-400 mb-3"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
+                      />
                     </svg>
-                  </button>
-                  
-                  {/* Botão de análise de mordida */}
-                  <button
-                    onClick={() => setShowBiteAnalysis(true)}
-                    className="absolute top-4 right-4 bg-blue-600 text-white rounded-full p-2 shadow-lg"
-                    title="Análise de Mordida"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
-                    </svg>
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-12">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 text-gray-400 mb-4">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
-                  </svg>
-                  <p className="text-sm text-gray-500 mb-4">Clique para selecionar uma imagem ou arraste e solte aqui</p>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  >
-                    Selecionar Arquivo
-                  </button>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileUpload}
-                    accept="image/*"
-                    className="hidden"
-                  />
-                </div>
-              )}
-              
-              <div className="mt-6 text-center text-sm text-gray-500">
-                Posicione o paciente com iluminação adequada para melhores resultados
+                    <p className="text-xs sm:text-sm text-center text-gray-500 mb-4">
+                      Clique ou arraste uma imagem aqui (Max 5MB)
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors duration-200 text-sm"
+                    >
+                      Selecionar Arquivo
+                    </button>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileUpload}
+                      accept="image/jpeg, image/png, image/webp"
+                      className="hidden"
+                      aria-label="Selecionar imagem para upload"
+                    />
+                  </div>
+                )}
               </div>
+              <p className="text-center text-xs sm:text-sm text-gray-500">
+                Posicione o rosto centralizado e com boa iluminação.
+              </p>
             </div>
           </div>
-        ) : !results ? (
+        )}
+
+        {/* Step 2: Review and Analyze */}
+        {image && !results && (
           <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="p-6">
-              <h2 className="text-lg font-medium text-gray-900 mb-4">Revisar Imagem</h2>
-              
-              <div className="aspect-video bg-black rounded-lg overflow-hidden mb-6">
-                <img
+            <div className="p-4 sm:p-6">
+              <h2 className="text-base sm:text-lg font-medium text-gray-900 mb-4">
+                2. Revisar e Analisar
+              </h2>
+              <div className="bg-gray-100 rounded-lg overflow-hidden mb-4 sm:mb-6 max-w-md mx-auto border border-gray-200">
+                <Image
                   src={image}
-                  alt="Imagem capturada"
-                  className="w-full h-full object-contain"
+                  alt="Imagem para análise"
+                  width={640}
+                  height={480}
+                  className="w-full h-auto object-contain rounded-lg"
                 />
               </div>
-              
-              <div className="flex justify-between">
+              <div className="flex flex-col sm:flex-row justify-center gap-3">
                 <button
                   onClick={resetAnalysis}
-                  className="bg-gray-100 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                  disabled={analyzing}
+                  className="w-full sm:w-auto bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition-colors duration-200 text-sm disabled:opacity-50"
                 >
-                  Capturar Novamente
+                  Voltar
                 </button>
                 <button
                   onClick={analyzeImage}
-                  disabled={analyzing}
-                  className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+                  disabled={analyzing || apiKeyMissingError}
+                  className="w-full sm:w-auto bg-blue-600 text-white py-2 px-5 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 text-sm"
                 >
                   {analyzing ? (
-                    <div className="flex items-center">
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    <div className="flex items-center justify-center">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
                       Analisando...
                     </div>
                   ) : (
-                    'Analisar Foto'
+                    "Analisar Cor (IA)"
                   )}
                 </button>
               </div>
             </div>
           </div>
-        ) : (
+        )}
+
+        {/* Step 3: Results and Actions */}
+        {image && results && (
           <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="p-6">
-              <h2 className="text-lg font-medium text-gray-900 mb-4">Resultados da Análise</h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <div className="aspect-video bg-black rounded-lg overflow-hidden mb-4">
-                    {!showBiteAnalysis ? (
-                      <img
-                        src={image}
-                        alt="Imagem analisada"
-                        className="w-full h-full object-contain"
-                      />
-                    ) : (
-                      <canvas
-                        ref={canvasRef}
-                        className="w-full h-full"
-                        width={640}
-                        height={480}
-                      />
-                    )}
-                  </div>
-                  
-                  {!showBiteAnalysis ? (
-                    <button
-                      onClick={() => setShowBiteAnalysis(true)}
-                      className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
-                      </svg>
-                      Analisar Mordida e Linha Média
-                    </button>
-                  ) : !biteAnalysisResults ? (
-                    <button
-                      onClick={analyzeBite}
-                      disabled={biteAnalyzing}
-                      className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 flex items-center justify-center"
-                    >
-                      {biteAnalyzing ? (
-                        <div className="flex items-center">
-                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                          Analisando...
-                        </div>
-                      ) : (
-                        <>
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-2">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
-                          </svg>
-                          Confirmar Análise
-                        </>
-                      )}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => setShowBiteAnalysis(false)}
-                      className="w-full bg-gray-100 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 flex items-center justify-center"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
-                      </svg>
-                      Voltar para Análise de Cor
-                    </button>
-                  )}
+            <div className="p-4 sm:p-6">
+              <h2 className="text-base sm:text-lg font-medium text-gray-900 mb-4">
+                3. Resultados da Análise
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                {/* Image Column */}
+                <div className="bg-gray-100 rounded-lg overflow-hidden relative border border-gray-200">
+                  <Image
+                    src={results.image_url || image}
+                    alt="Imagem analisada"
+                    width={640}
+                    height={480}
+                    className="w-full h-auto object-contain rounded-lg"
+                    onError={(e) => {
+                      e.currentTarget.src = image || "/placeholder-image.png";
+                    }}
+                  />
                 </div>
-                
-                <div>
-                  {!showBiteAnalysis || (showBiteAnalysis && biteAnalysisResults) ? (
-                    <div className="space-y-6">
-                      {!showBiteAnalysis ? (
-                        <>
-                          <div>
-                            <h3 className="text-sm font-medium text-gray-500 mb-2">Cor do Dente (Escala Vita)</h3>
-                            <div className="flex items-center">
-                              <div 
-                                className="w-12 h-12 rounded-md mr-3" 
-                                style={{ backgroundColor: results.tooth_color.hex }}
-                              ></div>
-                              <div>
-                                <p className="text-lg font-bold">{results.tooth_color.code}</p>
-                                <p className="text-sm text-gray-500">{results.tooth_color.hex}</p>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <div>
-                            <h3 className="text-sm font-medium text-gray-500 mb-2">Cor da Gengiva (Escala Thomas Gomes)</h3>
-                            <div className="flex items-center">
-                              <div 
-                                className="w-12 h-12 rounded-md mr-3" 
-                                style={{ backgroundColor: results.gum_color.hex }}
-                              ></div>
-                              <div>
-                                <p className="text-lg font-bold">{results.gum_color.code}</p>
-                                <p className="text-sm text-gray-500">{results.gum_color.hex}</p>
-                              </div>
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div>
-                            <h3 className="text-sm font-medium text-gray-500 mb-2">Formato do Rosto</h3>
-                            <p className="text-lg font-bold capitalize">{biteAnalysisResults.faceShape.shape}</p>
-                            <p className="text-sm text-gray-500">
-                              Confiança: {Math.round(biteAnalysisResults.faceShape.confidence * 100)}%
-                            </p>
-                          </div>
-                          
-                          <div>
-                            <h3 className="text-sm font-medium text-gray-500 mb-2">Linha Média</h3>
-                            <p className="text-lg font-bold">
-                              {biteAnalysisResults.midline.angle.toFixed(1)}° de inclinação
-                            </p>
-                            <p className="text-sm text-gray-500">
-                              Confiança: {Math.round(biteAnalysisResults.midline.confidence * 100)}%
-                            </p>
-                          </div>
-                          
-                          <div>
-                            <h3 className="text-sm font-medium text-gray-500 mb-2">Proporções Dentárias Ideais</h3>
-                            <ul className="space-y-1">
-                              <li className="flex justify-between">
-                                <span>Incisivos centrais:</span>
-                                <span className="font-medium">{biteAnalysisResults.dentalProportions.centralIncisorsWidth.toFixed(1)}mm</span>
-                              </li>
-                              <li className="flex justify-between">
-                                <span>Incisivos laterais:</span>
-                                <span className="font-medium">{biteAnalysisResults.dentalProportions.lateralIncisorsWidth.toFixed(1)}mm</span>
-                              </li>
-                              <li className="flex justify-between">
-                                <span>Caninos:</span>
-                                <span className="font-medium">{biteAnalysisResults.dentalProportions.caninesWidth.toFixed(1)}mm</span>
-                              </li>
-                            </ul>
-                          </div>
-                          
-                          {biteAnalysisResults.recommendations && (
-                            <div>
-                              <h3 className="text-sm font-medium text-gray-500 mb-2">Recomendações</h3>
-                              <ul className="space-y-1 text-sm">
-                                {biteAnalysisResults.recommendations.map((rec: string, index: number) => (
-                                  <li key={index} className="bg-blue-50 p-2 rounded-md">
-                                    {rec}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                        </>
-                      )}
-                      
-                      <div className="pt-4 border-t border-gray-200 flex justify-between">
-                        <button
-                          onClick={resetAnalysis}
-                          className="bg-gray-100 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-                        >
-                          Nova Análise
-                        </button>
-                        <button
-                          onClick={shareToFeed}
-                          className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                        >
-                          Compartilhar
-                        </button>
+
+                {/* Results Column */}
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-medium text-gray-500 mb-1">
+                      Cor do Dente (IA)
+                    </h3>
+                    <div className="flex items-center bg-gray-50 p-2 sm:p-3 rounded-md border border-gray-200">
+                      <div
+                        className="w-8 h-8 sm:w-10 sm:h-10 rounded-md mr-2 sm:mr-3 border border-gray-300 flex-shrink-0"
+                        style={{ backgroundColor: results.tooth_color.hex }}
+                        title={results.tooth_color.hex}
+                      ></div>
+                      <div>
+                        <p className="text-sm sm:text-base font-semibold">
+                          {results.tooth_color.code}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {results.tooth_color.hex}
+                        </p>
                       </div>
                     </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center h-full">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 text-gray-400 mb-4">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
-                      </svg>
-                      <p className="text-gray-500 mb-2">Análise de Mordida e Linha Média</p>
-                      <p className="text-sm text-gray-400 text-center mb-4">
-                        Detecta a linha média facial e sugere o tamanho ideal dos dentes com base no formato do rosto
-                      </p>
-                      <p className="text-sm text-gray-400 text-center">
-                        Clique em &quot;Confirmar Análise&quot; para iniciar
-                      </p>
+                  </div>
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-medium text-gray-500 mb-1">
+                      Cor da Gengiva (IA)
+                    </h3>
+                    <div className="flex items-center bg-gray-50 p-2 sm:p-3 rounded-md border border-gray-200">
+                      <div
+                        className="w-8 h-8 sm:w-10 sm:h-10 rounded-md mr-2 sm:mr-3 border border-gray-300 flex-shrink-0"
+                        style={{ backgroundColor: results.gum_color.hex }}
+                        title={results.gum_color.hex}
+                      ></div>
+                      <div>
+                        <p className="text-sm sm:text-base font-semibold">
+                          {results.gum_color.code}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {results.gum_color.hex}
+                        </p>
+                      </div>
                     </div>
-                  )}
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="pt-4 border-t border-gray-200 flex flex-col sm:flex-row justify-center gap-3">
+                    <button
+                      onClick={resetAnalysis}
+                      className="w-full sm:w-auto bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition-colors duration-200 text-sm"
+                    >
+                      Nova Análise
+                    </button>
+                    <button
+                      onClick={shareToFeed}
+                      className="w-full sm:w-auto bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors duration-200 text-sm"
+                    >
+                      Compartilhar no Feed
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         )}
       </main>
-
-      {/* Navegação inferior */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 py-3">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-around">
-          <button
-            onClick={() => router.push('/dashboard')}
-            className="flex flex-col items-center text-gray-500"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
-            </svg>
-            <span className="text-xs mt-1">Perfil</span>
-          </button>
-          <button
-            onClick={() => router.push('/feed')}
-            className="flex flex-col items-center text-gray-500"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5M6 7.5h3v3H6v-3Z" />
-            </svg>
-            <span className="text-xs mt-1">Feed</span>
-          </button>
-          <button
-            onClick={() => {}}
-            className="flex flex-col items-center text-blue-600"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
-            </svg>
-            <span className="text-xs mt-1">Analisar</span>
-          </button>
-          <button
-            onClick={() => router.push('/chats')}
-            className="flex flex-col items-center text-gray-500"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
-            </svg>
-            <span className="text-xs mt-1">Chat</span>
-          </button>
-        </div>
-      </nav>
     </div>
   );
 }

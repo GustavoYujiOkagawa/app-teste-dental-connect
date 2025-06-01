@@ -1,3 +1,5 @@
+"use client";
+
 import type { Metadata } from "next";
 import { Inter, Roboto_Mono } from "next/font/google";
 import "./globals.css";
@@ -12,10 +14,10 @@ const robotoMono = Roboto_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "DentalConnect",
-  description: "Análise de cor dental e comunicação entre dentistas e protéticos",
-};
+// export const metadata: Metadata = {
+//   title: "DentalConnect",
+//   description: "Análise de cor dental e comunicação entre dentistas e protéticos",
+// };
 
 export default function RootLayout({
   children,
@@ -24,9 +26,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body
-        className={`${inter.variable} ${robotoMono.variable} antialiased`}
-      >
+      <head>
+        <title>DentalConnect</title>
+        <meta
+          name="description"
+          content="Análise de cor dental e comunicação entre dentistas e protéticos"
+        />
+      </head>
+      <body className={`${inter.variable} ${robotoMono.variable} antialiased`}>
         {children}
       </body>
     </html>

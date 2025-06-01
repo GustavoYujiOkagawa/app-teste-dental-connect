@@ -1,14 +1,17 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { supabase } from '@/lib/supabase';
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { supabase } from "@/lib/supabase";
 
 export default function ForgotPassword() {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -22,16 +25,18 @@ export default function ForgotPassword() {
       });
 
       if (error) throw error;
-      
+
       setMessage({
-        type: 'success',
-        text: 'Enviamos um link de recuperação para o seu email. Por favor, verifique sua caixa de entrada.'
+        type: "success",
+        text: "Enviamos um link de recuperação para o seu email. Por favor, verifique sua caixa de entrada.",
       });
     } catch (error: any) {
-      console.error('Erro ao solicitar recuperação de senha:', error);
+      console.error("Erro ao solicitar recuperação de senha:", error);
       setMessage({
-        type: 'error',
-        text: error.message || 'Não foi possível enviar o email de recuperação. Tente novamente.'
+        type: "error",
+        text:
+          error.message ||
+          "Não foi possível enviar o email de recuperação. Tente novamente.",
       });
     } finally {
       setLoading(false);
@@ -43,8 +48,19 @@ export default function ForgotPassword() {
       {/* Cabeçalho com logo */}
       <header className="w-full p-4 flex justify-center">
         <div className="w-16 h-16 relative">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-full h-full text-blue-600">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.5}
+            stroke="currentColor"
+            className="w-full h-full mt-16 text-blue-600"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"
+            />
           </svg>
         </div>
       </header>
@@ -57,12 +73,19 @@ export default function ForgotPassword() {
             Esqueceu sua senha?
           </h1>
           <p className="text-center text-gray-600 mb-8">
-            Não se preocupe. Informe seu email e enviaremos um link para redefinir sua senha.
+            Não se preocupe. Informe seu email e enviaremos um link para
+            redefinir sua senha.
           </p>
 
           {/* Mensagem de sucesso/erro */}
           {message && (
-            <div className={`p-4 mb-6 rounded-md ${message.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+            <div
+              className={`p-4 mb-6 rounded-md ${
+                message.type === "success"
+                  ? "bg-green-50 text-green-700"
+                  : "bg-red-50 text-red-700"
+              }`}
+            >
               {message.text}
             </div>
           )}
@@ -71,7 +94,10 @@ export default function ForgotPassword() {
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Campo de email */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+              <label
+                htmlFor="email"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
                 Email
               </label>
               <input
@@ -97,13 +123,16 @@ export default function ForgotPassword() {
                   Enviando...
                 </div>
               ) : (
-                'Enviar link de recuperação'
+                "Enviar link de recuperação"
               )}
             </button>
 
             {/* Voltar para login */}
             <div className="text-center mt-4">
-              <Link href="/login" className="text-sm text-blue-600 hover:text-blue-800">
+              <Link
+                href="/login"
+                className="text-sm text-blue-600 hover:text-blue-800"
+              >
                 Voltar para o login
               </Link>
             </div>
