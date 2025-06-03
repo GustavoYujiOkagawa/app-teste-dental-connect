@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions";
+// Lê a chave da API da OpenAI das variáveis de ambiente
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
+
+// Valor padrão para campos não encontrados
+const NOT_FOUND_VALUE_CODE = "Não identificado";
+const NOT_FOUND_VALUE_HEX = "#N/A";
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,20 +19,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!DEEPSEEK_API_KEY) {
+    // Verifica se a chave da API da OpenAI está configurada
+    if (!OPENAI_API_KEY) {
+      console.error("Chave da API da OpenAI não configurada.");
       return NextResponse.json(
-        { error: "Chave da API não configurada." },
+        { error: "Chave da API da OpenAI não configurada no ambiente." },
         { status: 500 }
       );
     }
 
+    // Monta o payload para a API da OpenAI com modelo de visão (gpt-4o)
+    // Habilita o Modo JSON para garantir uma resposta JSON válida.
     const payload = {
-      model: "deepseek-vl-chat",
+      model: "gpt-4o", // Modelo com capacidade de visão
       messages: [
         {
           role: "user",
-          content: `
-Você é um especialista em odontologia estética. Analise cuidadosamente a imagem fornecida e me retorne apenas um JSON no seguinte formato, sem explicações:
+          content: [
+            {
+              type: "text",
+              // Instrução clara para retornar JSON, necessária para o Modo JSON
+              // Reforça que todos os campos são desejados, mas o código tratará ausências.
+              text: `
+Você é um especialista em odontologia estética. Analise cuidadosamente a imagem fornecida e me retorne APENAS um objeto JSON válido no seguinte formato, sem nenhuma explicação ou texto adicional antes ou depois do JSON. Tente identificar todos os campos, mas se algum não for claramente visível, pode omiti-lo ou usar um valor indicando isso:
 
 {
   "toothColorCode": "VITA code (ex: A1, A2, B1)",
@@ -36,19 +50,30 @@ Você é um especialista em odontologia estética. Analise cuidadosamente a imag
   "gumColorHex": "#hexadecimal"
 }
 
-Responda apenas no formato JSON.
-          `.trim(),
-          images: [`data:image/jpeg;base64,${imageBase64}`],
+Responda APENAS com o objeto JSON.
+              `.trim(),
+            },
+            {
+              type: "image_url",
+              image_url: {
+                // Assumindo que a imagem é JPEG. Ajuste o mime type se necessário.
+                url: `data:image/jpeg;base64,${imageBase64}`,
+              },
+            },
+          ],
         },
       ],
-      max_tokens: 500,
+      max_tokens: 500, // Ajuste conforme necessário
+      // Habilita o Modo JSON
+      response_format: { type: "json_object" },
     };
 
-    const response = await fetch(DEEPSEEK_API_URL, {
+    // Faz a requisição para a API da OpenAI
+    const response = await fetch(OPENAI_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify(payload),
     });
@@ -58,51 +83,92 @@ Responda apenas no formato JSON.
     try {
       data = JSON.parse(text);
     } catch (e) {
-      console.error("Resposta não é JSON:", text);
+      console.error(
+        "Resposta da OpenAI não é JSON (mesmo com Modo JSON?):",
+        text
+      );
       return NextResponse.json(
-        { error: "Resposta inválida da API DeepSeek", resposta: text },
+        { error: "Resposta inválida da API OpenAI (não JSON)", resposta: text },
         { status: 500 }
       );
     }
 
+    // Verifica se a resposta da API foi bem-sucedida
     if (!response.ok) {
-      console.error("Erro da API DeepSeek:", data);
-      return NextResponse.json({ error: data }, { status: response.status });
+      console.error("Erro da API OpenAI:", data);
+      // Retorna o erro específico da OpenAI, se disponível
+      const errorMessage =
+        data?.error?.message || "Erro desconhecido da API OpenAI";
+      return NextResponse.json(
+        { error: errorMessage, details: data },
+        { status: response.status }
+      );
     }
 
-    const messageContent = data.choices?.[0]?.message?.content;
+    // **Ajuste Final: Acesso robusto ao message.content**
+    // Extrai o conteúdo da mensagem da resposta de forma segura
+    let messageContent: string | null = null;
+    if (
+      data.choices &&
+      data.choices.length > 0 &&
+      data.choices[0].message &&
+      typeof data.choices[0].message.content === "string"
+    ) {
+      messageContent = data.choices[0].message.content;
+    } else {
+      console.error(
+        "Estrutura inesperada ou conteúdo ausente na resposta da OpenAI:",
+        JSON.stringify(data, null, 2)
+      );
+    }
+
     if (!messageContent) {
+      console.error(
+        "Não foi possível extrair message.content da resposta da OpenAI:",
+        data
+      );
       return NextResponse.json(
-        { error: "Resposta inválida da DeepSeek." },
+        { error: "Resposta inválida da OpenAI (sem message.content)." },
         { status: 500 }
       );
     }
 
-    const cleanedContent = messageContent.replace(/```json|```/g, "").trim();
+    const cleanedContent = messageContent.trim();
 
     let jsonResult;
     try {
+      // O conteúdo já deve ser um JSON válido devido ao response_format
       jsonResult = JSON.parse(cleanedContent);
     } catch (e) {
-      console.error("Erro ao fazer parse do JSON:", e, cleanedContent);
+      console.error(
+        "Erro ao fazer parse do JSON da OpenAI (Modo JSON falhou?):",
+        e,
+        cleanedContent
+      );
       return NextResponse.json(
         {
-          error: "Não foi possível interpretar a resposta da DeepSeek.",
+          error:
+            "Não foi possível interpretar a resposta JSON da OpenAI (inesperado com Modo JSON).",
           respostaBruta: messageContent,
         },
         { status: 500 }
       );
     }
 
-    const { toothColorCode, toothColorHex, gumColorCode, gumColorHex } =
-      jsonResult;
-    if (!toothColorCode || !toothColorHex || !gumColorCode || !gumColorHex) {
-      return NextResponse.json(
-        { error: "Resposta incompleta ou inválida.", jsonResult },
-        { status: 500 }
-      );
-    }
+    // Tratamento Resiliente de Campos Ausentes
+    const toothColorCode = jsonResult?.toothColorCode || NOT_FOUND_VALUE_CODE;
+    const toothColorHex = jsonResult?.toothColorHex || NOT_FOUND_VALUE_HEX;
+    const gumColorCode = jsonResult?.gumColorCode || NOT_FOUND_VALUE_CODE;
+    const gumColorHex = jsonResult?.gumColorHex || NOT_FOUND_VALUE_HEX;
 
+    console.log("Resultado JSON processado (com padrões para ausentes):", {
+      toothColorCode,
+      toothColorHex,
+      gumColorCode,
+      gumColorHex,
+    });
+
+    // Retorna o resultado JSON processado
     return NextResponse.json({
       toothColorCode,
       toothColorHex,
@@ -110,7 +176,7 @@ Responda apenas no formato JSON.
       gumColorHex,
     });
   } catch (error: any) {
-    console.error("Erro geral na API:", error);
+    console.error("Erro geral na rota da API:", error);
     return NextResponse.json(
       { error: error.message || "Erro interno do servidor." },
       { status: 500 }

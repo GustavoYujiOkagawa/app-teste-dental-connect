@@ -139,7 +139,7 @@ export default function AnalyzePage() {
     setFacingMode((prevMode) => (prevMode === "user" ? "environment" : "user"));
   };
 
-  // --- Analysis Logic (Integrate DeepSeek in Step 6) ---
+  // --- Analysis Logic ---
   const analyzeImage = async () => {
     if (!image || !user) return;
 
@@ -149,35 +149,32 @@ export default function AnalyzePage() {
     setResults(null);
 
     try {
-      // 1. Call the backend API (Update this in Step 6 for DeepSeek)
+      // 1. Call the backend API (which now uses OpenAI)
       console.log("Chamando API /api/analyze-dental-color...");
       const response = await fetch("/api/analyze-dental-color", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: image.split(",")[1] }),
+        body: JSON.stringify({ imageBase64: image.split(",")[1] }), // Send only base64 part
       });
 
       const analysisResult = await response.json();
 
       if (!response.ok) {
-        // Check for specific API key error (Update error message for DeepSeek)
+        // Check for specific API key error from the backend (OpenAI)
         if (
           analysisResult.error &&
-          (analysisResult.error.includes(
-            "Chave da API OpenAI não configurada"
-          ) ||
-            analysisResult.error.includes(
-              "Chave da API DeepSeek não configurada"
-            ))
+          analysisResult.error.includes(
+            "Chave da API da OpenAI não configurada"
+          )
         ) {
           setApiKeyMissingError(true);
           setError(
-            "A análise por IA não está configurada. Verifique a chave da API no servidor."
+            "A análise por IA não está configurada. Verifique a chave da API OpenAI no servidor."
           );
           setAnalyzing(false);
           return;
         }
-        // Check for model deprecation error (Update for DeepSeek if needed)
+        // Check for model deprecation or other specific errors from backend
         if (
           analysisResult.error &&
           analysisResult.error.includes("deprecated")
@@ -188,13 +185,17 @@ export default function AnalyzePage() {
           setAnalyzing(false);
           return;
         }
+        // General error from backend
         throw new Error(
           analysisResult.error ||
             `Falha na análise de cor (HTTP ${response.status})`
         );
       }
 
-      console.log("Resultado da análise de cor:", analysisResult);
+      console.log(
+        "Resultado da análise de cor (OpenAI via backend):",
+        analysisResult
+      );
 
       const analyzedResultsData: AnalysisResults = {
         tooth_color: {
@@ -215,7 +216,7 @@ export default function AnalyzePage() {
       const filePath = `${user.id}/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
-        .from("dental_images") // Ensure this bucket exists
+        .from("dental-images") // Ensure this bucket exists
         .upload(filePath, imageBlob, { upsert: true });
 
       if (uploadError)
@@ -223,7 +224,7 @@ export default function AnalyzePage() {
 
       // 3. Get public URL of the uploaded image
       const { data: urlData } = supabase.storage
-        .from("dental_images")
+        .from("dental-images")
         .getPublicUrl(filePath);
 
       if (!urlData?.publicUrl)
@@ -261,6 +262,7 @@ export default function AnalyzePage() {
     } catch (error: any) {
       console.error("Erro durante o processo de análise:", error);
       if (!apiKeyMissingError) {
+        // Avoid overwriting the specific API key error
         setError(
           error.message || "Ocorreu um erro inesperado durante a análise."
         );
@@ -287,7 +289,7 @@ export default function AnalyzePage() {
     }
   };
 
-  // --- Sharing Logic (Implement in Step 10) ---
+  // --- Sharing Logic ---
   const shareToFeed = async () => {
     if (!results?.id || !user || !results.image_url) {
       setError("Análise ou imagem não encontrada para compartilhar.");
@@ -452,7 +454,7 @@ export default function AnalyzePage() {
                           viewBox="0 0 24 24"
                           strokeWidth={1.5}
                           stroke="currentColor"
-                          className="w-6 h-6 sm:w-7 sm:h-7 text-blue-600"
+                          className="w-6 h-6 text-blue-600"
                         >
                           <path
                             strokeLinecap="round"
@@ -466,12 +468,12 @@ export default function AnalyzePage() {
                           />
                         </svg>
                       </button>
-                      {/* Switch Camera Button (only if multiple cameras detected) */}
+                      {/* Switch Camera Button (only if multiple cameras) */}
                       {hasMultipleCameras && (
                         <button
                           onClick={switchCamera}
-                          className="bg-white rounded-full p-3 shadow-lg hover:bg-gray-100 transition-colors duration-200 ring-1 ring-gray-400"
-                          aria-label="Alternar câmera"
+                          className="bg-white rounded-full p-3 shadow-lg hover:bg-gray-100 transition-colors duration-200"
+                          aria-label="Trocar câmera"
                         >
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -479,12 +481,12 @@ export default function AnalyzePage() {
                             viewBox="0 0 24 24"
                             strokeWidth={1.5}
                             stroke="currentColor"
-                            className="w-6 h-6 sm:w-7 sm:h-7 text-gray-600"
+                            className="w-6 h-6 text-gray-700"
                           >
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
-                              d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
+                              d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 11.667 0l3.181-3.183m-4.991-4.992-3.182-3.182a8.25 8.25 0 0 0-11.667 0L2.985 14.652m13.038-4.992v4.992m0 0-4.992 0m4.992 0-3.181-3.183a8.25 8.25 0 0 0-11.667 0l-3.181 3.183"
                             />
                           </svg>
                         </button>
@@ -492,173 +494,205 @@ export default function AnalyzePage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 sm:p-10 min-h-[240px]">
+                  <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 sm:p-12 text-center">
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       fill="none"
                       viewBox="0 0 24 24"
                       strokeWidth={1.5}
                       stroke="currentColor"
-                      className="w-10 h-10 sm:w-12 sm:h-12 text-gray-400 mb-3"
+                      className="w-12 h-12 text-gray-400 mb-3"
                     >
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
+                        d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"
                       />
                     </svg>
-                    <p className="text-xs sm:text-sm text-center text-gray-500 mb-4">
-                      Clique ou arraste uma imagem aqui (Max 5MB)
+                    <p className="mb-2 text-sm text-gray-500">
+                      Arraste e solte uma imagem ou
                     </p>
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors duration-200 text-sm"
+                      className="relative cursor-pointer rounded-md bg-white font-semibold text-blue-600 focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-600 focus-within:ring-offset-2 hover:text-blue-500"
                     >
-                      Selecionar Arquivo
+                      <span>Clique para selecionar</span>
+                      <input
+                        ref={fileInputRef}
+                        id="file-upload"
+                        name="file-upload"
+                        type="file"
+                        className="sr-only"
+                        accept="image/*"
+                        onChange={handleFileUpload}
+                      />
                     </button>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={handleFileUpload}
-                      accept="image/jpeg, image/png, image/webp"
-                      className="hidden"
-                      aria-label="Selecionar imagem para upload"
-                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      PNG, JPG, GIF até 5MB
+                    </p>
                   </div>
                 )}
               </div>
-              <p className="text-center text-xs sm:text-sm text-gray-500">
-                Posicione o rosto centralizado e com boa iluminação.
-              </p>
             </div>
           </div>
         )}
 
-        {/* Step 2: Review and Analyze */}
+        {/* Step 2: Preview and Analyze Button */}
         {image && !results && (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="bg-white rounded-lg shadow overflow-hidden mt-6">
             <div className="p-4 sm:p-6">
               <h2 className="text-base sm:text-lg font-medium text-gray-900 mb-4">
-                2. Revisar e Analisar
+                2. Pré-visualização e Análise
               </h2>
-              <div className="bg-gray-100 rounded-lg overflow-hidden mb-4 sm:mb-6 max-w-md mx-auto border border-gray-200">
+              <div className="mb-4 sm:mb-6 relative">
                 <Image
                   src={image}
-                  alt="Imagem para análise"
-                  width={640}
-                  height={480}
-                  className="w-full h-auto object-contain rounded-lg"
+                  alt="Imagem capturada/enviada"
+                  width={webcamDimensions.width} // Use consistent dimensions
+                  height={webcamDimensions.height}
+                  className="rounded-lg border border-gray-300 w-full h-auto object-contain max-h-[60vh]"
                 />
-              </div>
-              <div className="flex flex-col sm:flex-row justify-center gap-3">
                 <button
                   onClick={resetAnalysis}
-                  disabled={analyzing}
-                  className="w-full sm:w-auto bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition-colors duration-200 text-sm disabled:opacity-50"
+                  className="absolute top-2 right-2 bg-black bg-opacity-50 text-white rounded-full p-1.5 hover:bg-opacity-75 transition-opacity"
+                  aria-label="Remover imagem"
                 >
-                  Voltar
-                </button>
-                <button
-                  onClick={analyzeImage}
-                  disabled={analyzing || apiKeyMissingError}
-                  className="w-full sm:w-auto bg-blue-600 text-white py-2 px-5 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 text-sm"
-                >
-                  {analyzing ? (
-                    <div className="flex items-center justify-center">
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                      Analisando...
-                    </div>
-                  ) : (
-                    "Analisar Cor (IA)"
-                  )}
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                    className="w-4 h-4"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M6 18 18 6M6 6l12 12"
+                    />
+                  </svg>
                 </button>
               </div>
+              <button
+                onClick={analyzeImage}
+                disabled={analyzing}
+                className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {analyzing ? (
+                  <>
+                    <svg
+                      className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    Analisando...
+                  </>
+                ) : (
+                  "Analisar Cor Dental"
+                )}
+              </button>
             </div>
           </div>
         )}
 
-        {/* Step 3: Results and Actions */}
-        {image && results && (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
+        {/* Step 3: Results */}
+        {results && (
+          <div className="bg-white rounded-lg shadow overflow-hidden mt-6">
             <div className="p-4 sm:p-6">
               <h2 className="text-base sm:text-lg font-medium text-gray-900 mb-4">
                 3. Resultados da Análise
               </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-                {/* Image Column */}
-                <div className="bg-gray-100 rounded-lg overflow-hidden relative border border-gray-200">
-                  <Image
-                    src={results.image_url || image}
-                    alt="Imagem analisada"
-                    width={640}
-                    height={480}
-                    className="w-full h-auto object-contain rounded-lg"
-                    onError={(e) => {
-                      e.currentTarget.src = image || "/placeholder-image.png";
-                    }}
-                  />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
+                {/* Image Preview */}
+                <div className="relative">
+                  {results.image_url && (
+                    <Image
+                      src={results.image_url}
+                      alt="Imagem analisada"
+                      width={webcamDimensions.width / 2} // Smaller preview
+                      height={webcamDimensions.height / 2}
+                      className="rounded-lg border border-gray-300 w-full h-auto object-contain max-h-[40vh]"
+                    />
+                  )}
                 </div>
-
-                {/* Results Column */}
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-xs sm:text-sm font-medium text-gray-500 mb-1">
-                      Cor do Dente (IA)
-                    </h3>
-                    <div className="flex items-center bg-gray-50 p-2 sm:p-3 rounded-md border border-gray-200">
-                      <div
-                        className="w-8 h-8 sm:w-10 sm:h-10 rounded-md mr-2 sm:mr-3 border border-gray-300 flex-shrink-0"
-                        style={{ backgroundColor: results.tooth_color.hex }}
-                        title={results.tooth_color.hex}
-                      ></div>
-                      <div>
-                        <p className="text-sm sm:text-base font-semibold">
-                          {results.tooth_color.code}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          {results.tooth_color.hex}
-                        </p>
-                      </div>
+                {/* Color Results */}
+                <div>
+                  <dl className="space-y-3">
+                    {/* Tooth Color */}
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500">
+                        Cor do Dente (VITA)
+                      </dt>
+                      <dd className="mt-1 flex items-center">
+                        <span
+                          className="inline-block h-5 w-5 rounded-full border border-gray-300 mr-2"
+                          style={{ backgroundColor: results.tooth_color.hex }}
+                        ></span>
+                        <span className="text-sm text-gray-900">
+                          {results.tooth_color.code} ({results.tooth_color.hex})
+                        </span>
+                      </dd>
                     </div>
-                  </div>
-                  <div>
-                    <h3 className="text-xs sm:text-sm font-medium text-gray-500 mb-1">
-                      Cor da Gengiva (IA)
-                    </h3>
-                    <div className="flex items-center bg-gray-50 p-2 sm:p-3 rounded-md border border-gray-200">
-                      <div
-                        className="w-8 h-8 sm:w-10 sm:h-10 rounded-md mr-2 sm:mr-3 border border-gray-300 flex-shrink-0"
-                        style={{ backgroundColor: results.gum_color.hex }}
-                        title={results.gum_color.hex}
-                      ></div>
-                      <div>
-                        <p className="text-sm sm:text-base font-semibold">
-                          {results.gum_color.code}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          {results.gum_color.hex}
-                        </p>
-                      </div>
+                    {/* Gum Color */}
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500">
+                        Cor da Gengiva
+                      </dt>
+                      <dd className="mt-1 flex items-center">
+                        <span
+                          className="inline-block h-5 w-5 rounded-full border border-gray-300 mr-2"
+                          style={{ backgroundColor: results.gum_color.hex }}
+                        ></span>
+                        <span className="text-sm text-gray-900">
+                          {results.gum_color.code} ({results.gum_color.hex})
+                        </span>
+                      </dd>
                     </div>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="pt-4 border-t border-gray-200 flex flex-col sm:flex-row justify-center gap-3">
-                    <button
-                      onClick={resetAnalysis}
-                      className="w-full sm:w-auto bg-gray-200 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition-colors duration-200 text-sm"
-                    >
-                      Nova Análise
-                    </button>
-                    <button
-                      onClick={shareToFeed}
-                      className="w-full sm:w-auto bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors duration-200 text-sm"
-                    >
-                      Compartilhar no Feed
-                    </button>
-                  </div>
+                    {/* Analysis Date */}
+                    {results.created_at && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500">
+                          Data da Análise
+                        </dt>
+                        <dd className="mt-1 text-sm text-gray-900">
+                          {new Date(results.created_at).toLocaleString("pt-BR")}
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
                 </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row sm:justify-end space-y-3 sm:space-y-0 sm:space-x-3">
+                <button
+                  onClick={resetAnalysis}
+                  className="w-full sm:w-auto inline-flex justify-center items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                  Analisar Outra Imagem
+                </button>
+                <button
+                  onClick={shareToFeed}
+                  className="w-full sm:w-auto inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                >
+                  Compartilhar no Feed
+                </button>
               </div>
             </div>
           </div>
