@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Webcam from "react-webcam";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase"; // Assuming this client is correctly configured for browser usage
 import Image from "next/image";
 import type { User } from "@supabase/supabase-js";
 
@@ -22,7 +22,8 @@ type FacingMode = "user" | "environment";
 
 export default function AnalyzePage() {
   const [captureMode, setCaptureMode] = useState<"camera" | "upload">("camera");
-  const [image, setImage] = useState<string | null>(null);
+  const [image, setImage] = useState<string | null>(null); // Stores base64 image
+  const [imageFile, setImageFile] = useState<File | null>(null); // Stores the actual File object for upload
   const [analyzing, setAnalyzing] = useState(false);
   const [results, setResults] = useState<AnalysisResults | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,17 +42,19 @@ export default function AnalyzePage() {
 
   const router = useRouter();
 
-  // Check authentication
+  // Check authentication on component mount
   useEffect(() => {
     const checkAuth = async () => {
       const {
         data: { session },
-      } = await supabase.auth.getSession();
+      } = await supabase.auth.getSession(); // Checks if a session exists (e.g., from cookies/localStorage)
       if (!session) {
+        console.log("No active session found, redirecting to login.");
         router.push("/login");
         return;
       }
-      setUser(session.user);
+      console.log("Active session found for user:", session.user.id);
+      setUser(session.user); // Store user object
     };
     checkAuth();
   }, [router]);
@@ -71,63 +74,95 @@ export default function AnalyzePage() {
     const updateDimensions = () => {
       if (containerRef.current) {
         const containerWidth = containerRef.current.offsetWidth;
-        // Use a common aspect ratio, adjust if needed
-        const aspectRatio = window.innerWidth < 768 ? 9 / 16 : 16 / 9; // Portrait on mobile, landscape on desktop
+        const aspectRatio = window.innerWidth < 768 ? 9 / 16 : 16 / 9;
         const calculatedHeight = containerWidth / aspectRatio;
         const finalWidth = Math.max(containerWidth, 320);
         const finalHeight = Math.max(calculatedHeight, 240);
         setWebcamDimensions({ width: finalWidth, height: finalHeight });
       }
     };
-
     updateDimensions();
     window.addEventListener("resize", updateDimensions);
     return () => window.removeEventListener("resize", updateDimensions);
-  }, [captureMode]); // Re-run when capture mode changes
+  }, [captureMode]);
 
   // --- Image Handling ---
 
-  const captureImage = useCallback(() => {
+  // Capture image from webcam
+  const captureImage = useCallback(async () => {
     if (webcamRef.current) {
-      const imageSrc = webcamRef.current.getScreenshot();
+      const imageSrc = webcamRef.current.getScreenshot(); // Gets base64 string
       if (imageSrc) {
-        setImage(imageSrc);
+        setImage(imageSrc); // Store base64 for display
+        // Convert base64 to File object for upload
+        try {
+          const blob = await fetch(imageSrc).then((res) => res.blob());
+          const file = new File([blob], `webcam-${Date.now()}.jpeg`, {
+            type: "image/jpeg",
+          });
+          setImageFile(file); // Store File object
+          console.log("Webcam image captured and File object created.");
+        } catch (fetchError) {
+          console.error("Error converting webcam base64 to Blob:", fetchError);
+          setError("Erro ao processar imagem da webcam.");
+          setImageFile(null);
+          return;
+        }
         setResults(null);
         setError(null);
         setApiKeyMissingError(false);
       } else {
         setError("Não foi possível capturar a imagem da webcam.");
+        setImageFile(null);
       }
     }
   }, []);
 
+  // Handle file upload from input
   const handleFileUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if (!file) return;
+      if (!file) {
+        setImage(null);
+        setImageFile(null);
+        return;
+      }
       if (!file.type.startsWith("image/")) {
         setError("Por favor, selecione um arquivo de imagem.");
+        setImage(null);
+        setImageFile(null);
         return;
       }
       if (file.size > 5 * 1024 * 1024) {
-        // Limit upload size (e.g., 5MB)
         setError("Arquivo muito grande. O limite é 5MB.");
+        setImage(null);
+        setImageFile(null);
         return;
       }
 
+      setImageFile(file); // Store the File object directly
+      console.log("File selected for upload:", file.name);
+
+      // Read the file as base64 for display purposes
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
-          setImage(event.target.result as string);
+          setImage(event.target.result as string); // Store base64 for display
           setResults(null);
           setError(null);
           setApiKeyMissingError(false);
         } else {
-          setError("Não foi possível ler o arquivo de imagem.");
+          setError(
+            "Não foi possível ler o arquivo de imagem para visualização."
+          );
+          setImage(null);
+          setImageFile(null);
         }
       };
       reader.onerror = () => {
-        setError("Erro ao ler o arquivo de imagem.");
+        setError("Erro ao ler o arquivo de imagem para visualização.");
+        setImage(null);
+        setImageFile(null);
       };
       reader.readAsDataURL(file);
     },
@@ -139,9 +174,22 @@ export default function AnalyzePage() {
     setFacingMode((prevMode) => (prevMode === "user" ? "environment" : "user"));
   };
 
-  // --- Analysis Logic ---
-  const analyzeImage = async () => {
-    if (!image || !user) return;
+  // --- Analysis and Upload Logic ---
+  const analyzeAndUploadImage = async () => {
+    // Ensure we have the actual File object for upload, and the user is authenticated
+    if (!imageFile || !user) {
+      setError("Nenhuma imagem selecionada ou usuário não autenticado.");
+      console.error("Attempted analysis without image file or user session.", {
+        hasImageFile: !!imageFile,
+        hasUser: !!user,
+      });
+      return;
+    }
+    // Also ensure we have the base64 for the OpenAI API call
+    if (!image) {
+      setError("Pré-visualização da imagem não disponível para análise.");
+      return;
+    }
 
     setAnalyzing(true);
     setError(null);
@@ -149,8 +197,10 @@ export default function AnalyzePage() {
     setResults(null);
 
     try {
-      // 1. Call the backend API (which now uses OpenAI)
-      console.log("Chamando API /api/analyze-dental-color...");
+      // Step 1: Call the backend API for OpenAI analysis (using base64)
+      console.log(
+        "Chamando API /api/analyze-dental-color para análise OpenAI..."
+      );
       const response = await fetch("/api/analyze-dental-color", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -160,10 +210,9 @@ export default function AnalyzePage() {
       const analysisResult = await response.json();
 
       if (!response.ok) {
-        // Check for specific API key error from the backend (OpenAI)
+        // Handle specific errors from the backend API (OpenAI key, etc.)
         if (
-          analysisResult.error &&
-          analysisResult.error.includes(
+          analysisResult.error?.includes(
             "Chave da API da OpenAI não configurada"
           )
         ) {
@@ -171,32 +220,25 @@ export default function AnalyzePage() {
           setError(
             "A análise por IA não está configurada. Verifique a chave da API OpenAI no servidor."
           );
-          setAnalyzing(false);
-          return;
-        }
-        // Check for model deprecation or other specific errors from backend
-        if (
-          analysisResult.error &&
-          analysisResult.error.includes("deprecated")
-        ) {
+        } else if (analysisResult.error?.includes("deprecated")) {
           setError(
             "O modelo de IA configurado está desatualizado. Contate o suporte."
           );
-          setAnalyzing(false);
-          return;
+        } else {
+          setError(
+            analysisResult.error ||
+              `Falha na análise de cor (HTTP ${response.status})`
+          );
         }
-        // General error from backend
-        throw new Error(
-          analysisResult.error ||
-            `Falha na análise de cor (HTTP ${response.status})`
+        console.error(
+          "Erro retornado pela API de análise:",
+          analysisResult.error || response.status
         );
+        setAnalyzing(false);
+        return; // Stop the process if analysis fails
       }
 
-      console.log(
-        "Resultado da análise de cor (OpenAI via backend):",
-        analysisResult
-      );
-
+      console.log("Resultado da análise OpenAI recebido:", analysisResult);
       const analyzedResultsData: AnalysisResults = {
         tooth_color: {
           code: analysisResult.toothColorCode,
@@ -208,34 +250,69 @@ export default function AnalyzePage() {
         },
       };
 
-      // 2. Upload the original image to Supabase Storage
-      console.log("Fazendo upload da imagem para o Supabase...");
-      const imageBlob = await fetch(image).then((res) => res.blob());
-      const fileExt = imageBlob.type.split("/")[1] || "jpg";
+      // Step 2: Upload the original image FILE to Supabase Storage
+      // This is where the RLS policy "Permitir upload autenticado em dental-images" is checked.
+      // The `supabase` client instance MUST have the authenticated user's context/token.
+      // In a browser context with the standard Supabase client, this usually happens automatically
+      // if the user session was established correctly (as checked in useEffect).
+      console.log(
+        `Fazendo upload do arquivo '${imageFile.name}' para o Supabase Storage...`
+      );
+      const fileExt = imageFile.name.split(".").pop() || "jpeg"; // Get extension from original file name
       const fileName = `${user.id}_${Date.now()}.${fileExt}`;
-      const filePath = `${user.id}/${fileName}`;
+      const filePath = `${user.id}/${fileName}`; // Path within the bucket
 
-      const { error: uploadError } = await supabase.storage
-        .from("dental-images") // Ensure this bucket exists
-        .upload(filePath, imageBlob, { upsert: true });
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from("dental-images") // Target bucket
+        .upload(filePath, imageFile, {
+          // Upload the File object directly
+          cacheControl: "3600",
+          upsert: false, // Set to true if you want to overwrite, false to prevent
+        });
 
-      if (uploadError)
-        throw new Error(`Erro no upload da imagem: ${uploadError.message}`);
+      if (uploadError) {
+        // *** THIS IS LIKELY WHERE THE RLS ERROR OCCURS ***
+        // If you get "new row violates row-level security policy" here, it means
+        // the supabase client performing the upload wasn't recognized as authenticated,
+        // even though getSession() worked earlier.
+        console.error("Erro no upload para Supabase Storage:", uploadError);
+        // Provide a more specific error message to the user
+        if (uploadError.message.includes("security policy")) {
+          setError(
+            "Erro de permissão ao salvar a imagem. Verifique se sua sessão está ativa e tente novamente."
+          );
+        } else {
+          setError(`Erro no upload da imagem: ${uploadError.message}`);
+        }
+        setAnalyzing(false);
+        return; // Stop the process if upload fails
+      }
 
-      // 3. Get public URL of the uploaded image
+      console.log("Upload para Supabase concluído:", uploadData);
+
+      // Step 3: Get public URL of the uploaded image
+      console.log("Obtendo URL pública da imagem...");
       const { data: urlData } = supabase.storage
         .from("dental-images")
         .getPublicUrl(filePath);
 
-      if (!urlData?.publicUrl)
-        throw new Error("Não foi possível obter a URL pública da imagem.");
+      if (!urlData?.publicUrl) {
+        // Handle case where URL is not immediately available (though usually it is)
+        console.error(
+          "Não foi possível obter a URL pública imediatamente após o upload."
+        );
+        setError("Não foi possível obter o link da imagem salva.");
+        // Consider: maybe proceed without public URL or try again?
+        setAnalyzing(false);
+        return;
+      }
       const publicUrl = urlData.publicUrl;
       console.log("URL pública da imagem:", publicUrl);
 
-      // 4. Save the analysis results to the database
-      console.log("Salvando análise no banco de dados...");
-      const { data: savedAnalysis, error: analysisError } = await supabase
-        .from("dental_analyses")
+      // Step 4: Save the analysis results (from OpenAI) and the image URL to the database
+      console.log("Salvando resultados da análise no banco de dados...");
+      const { data: savedAnalysis, error: dbError } = await supabase
+        .from("dental_analyses") // Ensure this table exists and RLS allows inserts for authenticated users
         .insert({
           user_id: user.id,
           image_url: publicUrl,
@@ -243,32 +320,44 @@ export default function AnalyzePage() {
           tooth_color_hex: analyzedResultsData.tooth_color.hex,
           gum_color_code: analyzedResultsData.gum_color.code,
           gum_color_hex: analyzedResultsData.gum_color.hex,
+          // Add any other relevant fields from analysisResult if needed
         })
-        .select()
-        .single();
+        .select() // Select the newly inserted row
+        .single(); // Expect a single row back
 
-      if (analysisError)
-        throw new Error(`Erro ao salvar análise: ${analysisError.message}`);
+      if (dbError) {
+        console.error("Erro ao salvar análise no banco de dados:", dbError);
+        setError(`Erro ao salvar resultados: ${dbError.message}`);
+        // Consider: Should we delete the uploaded image if DB save fails?
+        setAnalyzing(false);
+        return; // Stop if DB save fails
+      }
 
-      console.log("Análise salva com sucesso:", savedAnalysis);
+      console.log(
+        "Análise salva no banco de dados com sucesso:",
+        savedAnalysis
+      );
 
-      // 5. Update the state with the final results
+      // Step 5: Update the state with the final combined results (analysis + DB info)
       setResults({
         ...analyzedResultsData,
-        id: savedAnalysis.id,
+        id: savedAnalysis.id, // Include the ID from the database
         image_url: publicUrl,
         created_at: savedAnalysis.created_at,
       });
+      console.log("Estado atualizado com os resultados finais.");
     } catch (error: any) {
-      console.error("Erro durante o processo de análise:", error);
-      if (!apiKeyMissingError) {
-        // Avoid overwriting the specific API key error
-        setError(
-          error.message || "Ocorreu um erro inesperado durante a análise."
-        );
+      // Catch any unexpected errors during the process
+      console.error(
+        "Erro geral durante o processo de análise e upload:",
+        error
+      );
+      if (!apiKeyMissingError && !error?.message?.includes("upload")) {
+        // Avoid overwriting specific errors already set
+        setError(error.message || "Ocorreu um erro inesperado.");
       }
     } finally {
-      setAnalyzing(false);
+      setAnalyzing(false); // Ensure loading state is turned off
     }
   };
 
@@ -280,13 +369,16 @@ export default function AnalyzePage() {
 
   const resetAnalysis = () => {
     setImage(null);
+    setImageFile(null); // Also reset the file object
     setResults(null);
     setError(null);
     setApiKeyMissingError(false);
     setAnalyzing(false);
+    // Reset the file input visually
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+    console.log("Análise resetada.");
   };
 
   // --- Sharing Logic ---
@@ -296,35 +388,48 @@ export default function AnalyzePage() {
       return;
     }
     console.log("Preparando para compartilhar no feed:", results);
-    let description = `Análise de cor: Dente ${results.tooth_color.code}, Gengiva ${results.gum_color.code}.`;
+    let description = `Análise de cor dental realizada! Dente: ${results.tooth_color.code} (${results.tooth_color.hex}), Gengiva: ${results.gum_color.code} (${results.gum_color.hex}).`;
 
     try {
+      // Ensure the 'posts' table exists and has appropriate RLS (e.g., user can insert their own posts)
       const { error: postError } = await supabase.from("posts").insert({
         user_id: user.id,
-        dental_analysis_id: results.id,
-        image_url: results.image_url,
+        dental_analysis_id: results.id, // Link to the analysis
+        image_url: results.image_url, // Include image URL in the post
         description: description,
       });
       if (postError) throw postError;
-      console.log("Post criado com sucesso!");
+      console.log("Post criado com sucesso! Redirecionando para o feed...");
       router.push("/feed");
     } catch (error: any) {
-      console.error("Erro ao criar post:", error);
+      console.error("Erro ao criar post no feed:", error);
       setError(error.message || "Não foi possível compartilhar no feed.");
     }
   };
 
   // --- Render Logic ---
 
-  // Dynamic video constraints based on facingMode
   const videoConstraints = {
     width: webcamDimensions.width,
     height: webcamDimensions.height,
     facingMode: facingMode,
   };
 
+  // Loading state while checking auth
+  if (!user && !router.pathname?.includes("/login")) {
+    // Avoid showing loading if already redirecting
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <p>Verificando autenticação...</p>
+        {/* Add a spinner here if desired */}
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-100 pb-6">
+    <div className="min-h-screen bg-gray-100 pb-20">
+      {" "}
+      {/* Added padding-bottom */}
       {/* Header */}
       <header className="bg-white shadow-sm sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
@@ -353,7 +458,6 @@ export default function AnalyzePage() {
           </button>
         </div>
       </header>
-
       {/* Main Content */}
       <main className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Error/Info Messages */}
@@ -393,16 +497,22 @@ export default function AnalyzePage() {
           </div>
         )}
 
-        {/* Step 1: Capture or Upload */}
-        {!image && (
+        {/* Step 1: Capture or Upload Image */}
+        {!image && !analyzing && (
           <div className="bg-white rounded-lg shadow overflow-hidden">
             <div className="p-4 sm:p-6">
               <h2 className="text-base sm:text-lg font-medium text-gray-900 mb-4">
                 1. Capturar ou Enviar Imagem
               </h2>
+              {/* Mode Switcher */}
               <div className="flex border border-gray-300 rounded-md overflow-hidden mb-4 sm:mb-6 max-w-xs mx-auto">
                 <button
-                  onClick={() => setCaptureMode("camera")}
+                  onClick={() => {
+                    setCaptureMode("camera");
+                    setImage(null);
+                    setImageFile(null);
+                    setError(null);
+                  }}
                   className={`flex-1 py-2 px-3 text-center text-xs sm:text-sm transition-colors duration-200 ${
                     captureMode === "camera"
                       ? "bg-blue-600 text-white"
@@ -412,7 +522,12 @@ export default function AnalyzePage() {
                   Câmera
                 </button>
                 <button
-                  onClick={() => setCaptureMode("upload")}
+                  onClick={() => {
+                    setCaptureMode("upload");
+                    setImage(null);
+                    setImageFile(null);
+                    setError(null);
+                  }}
                   className={`flex-1 py-2 px-3 text-center text-xs sm:text-sm transition-colors duration-200 ${
                     captureMode === "upload"
                       ? "bg-blue-600 text-white"
@@ -423,6 +538,7 @@ export default function AnalyzePage() {
                 </button>
               </div>
 
+              {/* Camera or Upload UI */}
               <div ref={containerRef} className="mb-4 sm:mb-6">
                 {captureMode === "camera" ? (
                   <div
@@ -433,20 +549,24 @@ export default function AnalyzePage() {
                       audio={false}
                       ref={webcamRef}
                       screenshotFormat="image/jpeg"
-                      videoConstraints={videoConstraints} // Use dynamic constraints
+                      videoConstraints={videoConstraints}
                       width={webcamDimensions.width}
                       height={webcamDimensions.height}
                       className="block w-full h-auto rounded-lg"
-                      mirrored={facingMode === "user"} // Mirror only front camera
+                      mirrored={facingMode === "user"}
                       key={facingMode} // Force re-render on camera switch
+                      onUserMediaError={(err) =>
+                        setError(`Erro ao acessar câmera: ${err.message}`)
+                      }
+                      onUserMedia={() => setError(null)} // Clear error on success
                     />
-
                     <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-4">
                       {/* Capture Button */}
                       <button
                         onClick={captureImage}
-                        className="bg-white rounded-full p-3 shadow-lg hover:bg-gray-100 transition-colors duration-200 ring-2 ring-blue-500"
+                        className="bg-white rounded-full p-3 shadow-lg hover:bg-gray-100 transition-colors duration-200 ring-2 ring-blue-500 disabled:opacity-50"
                         aria-label="Capturar foto"
+                        disabled={!!error} // Disable if there's a camera error
                       >
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
@@ -481,12 +601,12 @@ export default function AnalyzePage() {
                             viewBox="0 0 24 24"
                             strokeWidth={1.5}
                             stroke="currentColor"
-                            className="w-6 h-6 text-gray-700"
+                            className="w-6 h-6 text-gray-600"
                           >
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
-                              d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 11.667 0l3.181-3.183m-4.991-4.992-3.182-3.182a8.25 8.25 0 0 0-11.667 0L2.985 14.652m13.038-4.992v4.992m0 0-4.992 0m4.992 0-3.181-3.183a8.25 8.25 0 0 0-11.667 0l-3.181 3.183"
+                              d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 11.667 0l3.181-3.183m-4.991-2.696v4.992h4.992m0 0-3.181-3.183a8.25 8.25 0 0 0-11.667 0L2.985 16.95m4.992-2.696h-4.992m0 0v-4.992m0 0h4.992M9 4.5l3.181 3.183a8.25 8.25 0 0 1 0 11.667l-3.181 3.183"
                             />
                           </svg>
                         </button>
@@ -494,7 +614,8 @@ export default function AnalyzePage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 sm:p-12 text-center">
+                  // Upload Mode UI
+                  <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       fill="none"
@@ -506,31 +627,30 @@ export default function AnalyzePage() {
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"
+                        d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
                       />
                     </svg>
                     <p className="mb-2 text-sm text-gray-500">
-                      Arraste e solte uma imagem ou
+                      <span className="font-semibold">Clique para enviar</span>{" "}
+                      ou arraste e solte
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="relative cursor-pointer rounded-md bg-white font-semibold text-blue-600 focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-600 focus-within:ring-offset-2 hover:text-blue-500"
-                    >
-                      <span>Clique para selecionar</span>
-                      <input
-                        ref={fileInputRef}
-                        id="file-upload"
-                        name="file-upload"
-                        type="file"
-                        className="sr-only"
-                        accept="image/*"
-                        onChange={handleFileUpload}
-                      />
-                    </button>
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className="text-xs text-gray-500">
                       PNG, JPG, GIF até 5MB
                     </p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      id="file-upload"
+                    />
+                    <label
+                      htmlFor="file-upload"
+                      className="mt-4 cursor-pointer rounded-md bg-white px-3 py-2 text-sm font-semibold text-blue-600 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+                    >
+                      Selecionar Arquivo
+                    </label>
                   </div>
                 )}
               </div>
@@ -538,160 +658,120 @@ export default function AnalyzePage() {
           </div>
         )}
 
-        {/* Step 2: Preview and Analyze Button */}
-        {image && !results && (
-          <div className="bg-white rounded-lg shadow overflow-hidden mt-6">
+        {/* Step 2: Display Image and Analyze Button */}
+        {image && !results && !analyzing && (
+          <div className="bg-white rounded-lg shadow overflow-hidden mb-6">
             <div className="p-4 sm:p-6">
               <h2 className="text-base sm:text-lg font-medium text-gray-900 mb-4">
-                2. Pré-visualização e Análise
+                2. Imagem Selecionada
               </h2>
-              <div className="mb-4 sm:mb-6 relative">
+              <div className="mb-4 relative group">
                 <Image
                   src={image}
-                  alt="Imagem capturada/enviada"
+                  alt="Imagem dental selecionada"
                   width={webcamDimensions.width} // Use consistent dimensions
                   height={webcamDimensions.height}
-                  className="rounded-lg border border-gray-300 w-full h-auto object-contain max-h-[60vh]"
+                  className="rounded-lg object-contain mx-auto border border-gray-200"
+                  style={{ maxHeight: "60vh" }} // Limit height
                 />
+                {/* Overlay button to change image */}
                 <button
-                  onClick={resetAnalysis}
-                  className="absolute top-2 right-2 bg-black bg-opacity-50 text-white rounded-full p-1.5 hover:bg-opacity-75 transition-opacity"
-                  aria-label="Remover imagem"
+                  onClick={resetAnalysis} // Use reset to go back to selection
+                  className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"
                 >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={1.5}
-                    stroke="currentColor"
-                    className="w-4 h-4"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M6 18 18 6M6 6l12 12"
-                    />
-                  </svg>
+                  Trocar Imagem
                 </button>
               </div>
               <button
-                onClick={analyzeImage}
+                onClick={analyzeAndUploadImage} // Changed function name
                 disabled={analyzing}
-                className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
               >
-                {analyzing ? (
-                  <>
-                    <svg
-                      className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      ></circle>
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      ></path>
-                    </svg>
-                    Analisando...
-                  </>
-                ) : (
-                  "Analisar Cor Dental"
-                )}
+                {analyzing ? "Analisando..." : "Analisar Cor e Salvar"}
               </button>
             </div>
           </div>
         )}
 
-        {/* Step 3: Results */}
-        {results && (
-          <div className="bg-white rounded-lg shadow overflow-hidden mt-6">
+        {/* Loading Indicator during Analysis */}
+        {analyzing && (
+          <div className="bg-white rounded-lg shadow p-6 text-center">
+            <p className="text-gray-700">Analisando e salvando a imagem...</p>
+            {/* Optional: Add a more visual spinner */}
+            <div className="mt-4 w-16 h-16 border-4 border-blue-500 border-dashed rounded-full animate-spin mx-auto"></div>
+          </div>
+        )}
+
+        {/* Step 3: Display Results */}
+        {results && !analyzing && (
+          <div className="bg-white rounded-lg shadow overflow-hidden">
             <div className="p-4 sm:p-6">
               <h2 className="text-base sm:text-lg font-medium text-gray-900 mb-4">
                 3. Resultados da Análise
               </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
-                {/* Image Preview */}
-                <div className="relative">
-                  {results.image_url && (
-                    <Image
-                      src={results.image_url}
-                      alt="Imagem analisada"
-                      width={webcamDimensions.width / 2} // Smaller preview
-                      height={webcamDimensions.height / 2}
-                      className="rounded-lg border border-gray-300 w-full h-auto object-contain max-h-[40vh]"
-                    />
+              <div className="mb-4">
+                {results.image_url && (
+                  <Image
+                    src={results.image_url} // Display the uploaded image URL
+                    alt="Imagem dental analisada"
+                    width={webcamDimensions.width}
+                    height={webcamDimensions.height}
+                    className="rounded-lg object-contain mx-auto border border-gray-200 mb-4"
+                    style={{ maxHeight: "60vh" }}
+                  />
+                )}
+                <dl className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <dt className="text-gray-500">Cor do Dente (Código):</dt>
+                    <dd className="text-gray-900 font-medium">
+                      {results.tooth_color.code}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <dt className="text-gray-500">Cor do Dente (Visual):</dt>
+                    <dd>
+                      <span
+                        className="inline-block w-5 h-5 rounded border border-gray-300"
+                        style={{ backgroundColor: results.tooth_color.hex }}
+                      ></span>
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-gray-500">Cor da Gengiva (Código):</dt>
+                    <dd className="text-gray-900 font-medium">
+                      {results.gum_color.code}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <dt className="text-gray-500">Cor da Gengiva (Visual):</dt>
+                    <dd>
+                      <span
+                        className="inline-block w-5 h-5 rounded border border-gray-300"
+                        style={{ backgroundColor: results.gum_color.hex }}
+                      ></span>
+                    </dd>
+                  </div>
+                  {/* Add notes or other results if available */}
+                  {results.notes && (
+                    <div className="pt-2">
+                      <dt className="text-gray-500 mb-1">Notas:</dt>
+                      <dd className="text-gray-900">{results.notes}</dd>
+                    </div>
                   )}
-                </div>
-                {/* Color Results */}
-                <div>
-                  <dl className="space-y-3">
-                    {/* Tooth Color */}
-                    <div>
-                      <dt className="text-sm font-medium text-gray-500">
-                        Cor do Dente (VITA)
-                      </dt>
-                      <dd className="mt-1 flex items-center">
-                        <span
-                          className="inline-block h-5 w-5 rounded-full border border-gray-300 mr-2"
-                          style={{ backgroundColor: results.tooth_color.hex }}
-                        ></span>
-                        <span className="text-sm text-gray-900">
-                          {results.tooth_color.code} ({results.tooth_color.hex})
-                        </span>
-                      </dd>
-                    </div>
-                    {/* Gum Color */}
-                    <div>
-                      <dt className="text-sm font-medium text-gray-500">
-                        Cor da Gengiva
-                      </dt>
-                      <dd className="mt-1 flex items-center">
-                        <span
-                          className="inline-block h-5 w-5 rounded-full border border-gray-300 mr-2"
-                          style={{ backgroundColor: results.gum_color.hex }}
-                        ></span>
-                        <span className="text-sm text-gray-900">
-                          {results.gum_color.code} ({results.gum_color.hex})
-                        </span>
-                      </dd>
-                    </div>
-                    {/* Analysis Date */}
-                    {results.created_at && (
-                      <div>
-                        <dt className="text-sm font-medium text-gray-500">
-                          Data da Análise
-                        </dt>
-                        <dd className="mt-1 text-sm text-gray-900">
-                          {new Date(results.created_at).toLocaleString("pt-BR")}
-                        </dd>
-                      </div>
-                    )}
-                  </dl>
-                </div>
+                </dl>
               </div>
-
-              {/* Action Buttons */}
-              <div className="flex flex-col sm:flex-row sm:justify-end space-y-3 sm:space-y-0 sm:space-x-3">
-                <button
-                  onClick={resetAnalysis}
-                  className="w-full sm:w-auto inline-flex justify-center items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                >
-                  Analisar Outra Imagem
-                </button>
+              <div className="mt-6 flex flex-col sm:flex-row sm:space-x-4 space-y-3 sm:space-y-0">
                 <button
                   onClick={shareToFeed}
-                  className="w-full sm:w-auto inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                  className="flex-1 inline-flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                 >
                   Compartilhar no Feed
+                </button>
+                <button
+                  onClick={resetAnalysis}
+                  className="flex-1 inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                >
+                  Analisar Outra Imagem
                 </button>
               </div>
             </div>

@@ -41,16 +41,17 @@ export async function POST(req: NextRequest) {
               // Instrução clara para retornar JSON, necessária para o Modo JSON
               // Reforça que todos os campos são desejados, mas o código tratará ausências.
               text: `
-Você é um especialista em odontologia estética. Analise cuidadosamente a imagem fornecida e me retorne APENAS um objeto JSON válido no seguinte formato, sem nenhuma explicação ou texto adicional antes ou depois do JSON. Tente identificar todos os campos, mas se algum não for claramente visível, pode omiti-lo ou usar um valor indicando isso:
+Você é um especialista em odontologia estética com profundo conhecimento em análise de cor dentária e gengival. Analise cuidadosamente a imagem fornecida e me retorne APENAS um objeto JSON com os seguintes campos:
 
-{
-  "toothColorCode": "VITA code (ex: A1, A2, B1)",
-  "toothColorHex": "#hexadecimal",
-  "gumColorCode": "Descrição da cor da gengiva (ex: Pink, Light Red)",
-  "gumColorHex": "#hexadecimal"
-}
+toothColorCode: código da cor do dente segundo a escala Vita (ex: A1, B2, C3, etc.)
 
-Responda APENAS com o objeto JSON.
+toothColorHex: código hexadecimal correspondente à cor do dente identificada
+
+gumColorCode: código da cor da gengiva segundo a escala STG (ex: STG1, STG2, etc.)
+
+gumColorHex: código hexadecimal correspondente à cor da gengiva identificada
+
+Não inclua nenhuma explicação ou texto adicional — apenas o objeto JSON no formato solicitado.
               `.trim(),
             },
             {

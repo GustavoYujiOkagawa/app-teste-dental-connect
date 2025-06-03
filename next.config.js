@@ -1,10 +1,19 @@
-/** @type {import('next').NextConfig} */
+/** @type {import("next").NextConfig} */
 const nextConfig = {
-  // Removendo output: 'export' para permitir funcionalidades dinâmicas
+  // ... outras configurações ...
+
   images: {
-    domains: ['localhost', 'supabase.co'],
-    unoptimized: false,
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "dgctteiqpysmyffubifh.supabase.co", // <<< VERIFIQUE SE ESTE HOSTNAME ESTÁ CORRETO E PRESENTE
+        port: "",
+        pathname: "/storage/v1/object/public/**",
+      },
+    ],
   },
+
+  // ... outras configurações ...
 };
 
 module.exports = nextConfig;
