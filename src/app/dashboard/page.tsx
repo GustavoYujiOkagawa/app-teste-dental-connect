@@ -1,12 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { supabase } from "@/lib/supabase";
-import type { Profile, DentalAnalysis } from "@/lib/supabase"; // Assumindo que estes tipos existem
+import type { Profile, DentalAnalysis } from "@/lib/supabase";
+import {
+  TrashIcon,
+  DocumentChartBarIcon,
+  PlusCircleIcon,
+  ChatBubbleLeftRightIcon,
+  CameraIcon,
+  ChartBarIcon,
+} from "@heroicons/react/24/outline";
 
-// Componente para o Sidebar Mobile
+// Componente MobileSidebar (sem alterações)
 function MobileSidebar({
   isOpen,
   onClose,
@@ -17,18 +25,15 @@ function MobileSidebar({
   router: any;
 }) {
   if (!isOpen) return null;
-
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) {
       console.error("Erro ao fazer logout:", error);
-      // Adicionar feedback ao usuário se necessário
     } else {
-      router.push("/login"); // Redirecionar para login após logout
+      router.push("/login");
     }
-    onClose(); // Fechar o menu
+    onClose();
   };
-
   const menuItems = [
     {
       path: "/settings",
@@ -136,7 +141,6 @@ function MobileSidebar({
       ),
     },
   ];
-
   return (
     <div
       className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
@@ -144,7 +148,7 @@ function MobileSidebar({
     >
       <div
         className="fixed left-0 top-0 h-full w-64 bg-white shadow-lg z-50 p-4 transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} flex flex-col"
-        onClick={(e) => e.stopPropagation()} // Impede que o clique dentro do sidebar o feche
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-bold text-gray-700">Menu</h2>
@@ -183,7 +187,6 @@ function MobileSidebar({
             </button>
           ))}
         </nav>
-        {/* Botão de Logout no final do menu */}
         <div className="mt-auto pt-4 border-t border-gray-200">
           <button
             onClick={handleLogout}
@@ -211,53 +214,256 @@ function MobileSidebar({
   );
 }
 
+// Componente para o gráfico de barras simples
+function MonthlyAnalysisChart({ analyses }: { analyses: DentalAnalysis[] }) {
+  // Agrupar análises por mês
+  const monthlyData = useMemo(() => {
+    const last6Months: { [key: string]: number } = {};
+
+    // Inicializar os últimos 6 meses com zero
+    const today = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(today);
+      d.setMonth(d.getMonth() - i);
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+        2,
+        "0"
+      )}`;
+      last6Months[monthKey] = 0;
+    }
+
+    // Contar análises por mês
+    analyses.forEach((analysis) => {
+      const date = new Date(analysis.created_at);
+      const monthKey = `${date.getFullYear()}-${String(
+        date.getMonth() + 1
+      ).padStart(2, "0")}`;
+
+      // Só contar se estiver nos últimos 6 meses
+      if (last6Months[monthKey] !== undefined) {
+        last6Months[monthKey]++;
+      }
+    });
+
+    // Converter para array para renderização
+    return Object.entries(last6Months).map(([key, count]) => {
+      const [year, month] = key.split("-");
+      const monthNames = [
+        "Jan",
+        "Fev",
+        "Mar",
+        "Abr",
+        "Mai",
+        "Jun",
+        "Jul",
+        "Ago",
+        "Set",
+        "Out",
+        "Nov",
+        "Dez",
+      ];
+      return {
+        month: monthNames[parseInt(month) - 1],
+        count,
+      };
+    });
+  }, [analyses]);
+
+  // Encontrar o valor máximo para escala
+  const maxValue = Math.max(...monthlyData.map((d) => d.count), 1);
+
+  return (
+    <div className="bg-white rounded-lg shadow p-4">
+      <h3 className="text-lg font-semibold text-gray-800 mb-4">
+        Análises por Mês
+      </h3>
+      <div className="flex items-end h-40 gap-2">
+        {monthlyData.map((data, index) => (
+          <div key={index} className="flex flex-col items-center flex-1">
+            <div
+              className="w-full bg-gray-100 rounded-t-sm relative"
+              style={{
+                height: `${(data.count / maxValue) * 100}%`,
+                minHeight: "4px",
+              }}
+            >
+              <div className="absolute inset-0 bg-blue-500 opacity-80 rounded-t-sm"></div>
+              <div className="absolute top-0 left-0 right-0 -mt-6 text-center text-xs font-medium text-gray-700">
+                {data.count > 0 && data.count}
+              </div>
+            </div>
+            <div className="text-xs text-gray-600 mt-2">{data.month}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Componente para os atalhos rápidos
+function QuickActions({ router }: { router: any }) {
+  const actions = [
+    {
+      title: "Nova Análise",
+      icon: <CameraIcon className="w-6 h-6" />,
+      color: "bg-blue-500 hover:bg-blue-600",
+      path: "/analyze",
+    },
+    {
+      title: "Ver Feed",
+      icon: <DocumentChartBarIcon className="w-6 h-6" />,
+      color: "bg-green-500 hover:bg-green-600",
+      path: "/feed",
+    },
+    {
+      title: "Chat",
+      icon: <ChatBubbleLeftRightIcon className="w-6 h-6" />,
+      color: "bg-purple-500 hover:bg-purple-600",
+      path: "/chat",
+    },
+    {
+      title: "Perfil",
+      icon: <ChartBarIcon className="w-6 h-6" />,
+      color: "bg-amber-500 hover:bg-amber-600",
+      path: "/settings",
+    },
+  ];
+
+  return (
+    <div className="bg-white rounded-lg shadow p-4 mb-6">
+      <h3 className="text-lg font-semibold text-gray-800 mb-4">
+        Ações Rápidas
+      </h3>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {actions.map((action, index) => (
+          <button
+            key={index}
+            onClick={() => router.push(action.path)}
+            className={`${action.color} text-white rounded-lg p-3 flex flex-col items-center justify-center transition-transform hover:scale-105`}
+          >
+            {action.icon}
+            <span className="mt-2 text-sm font-medium">{action.title}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Componente para estatísticas resumidas
+function StatsSummary({ analyses }: { analyses: DentalAnalysis[] }) {
+  // Calcular estatísticas
+  const stats = useMemo(() => {
+    // Análises este mês
+    const today = new Date();
+    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const analysesThisMonth = analyses.filter(
+      (a) => new Date(a.created_at) >= firstDayOfMonth
+    ).length;
+
+    // Cores de dente mais comuns
+    const toothColors: { [key: string]: number } = {};
+    analyses.forEach((a) => {
+      if (a.tooth_color_code) {
+        toothColors[a.tooth_color_code] =
+          (toothColors[a.tooth_color_code] || 0) + 1;
+      }
+    });
+
+    // Ordenar e pegar o mais comum
+    const mostCommonToothColor =
+      Object.entries(toothColors)
+        .sort((a, b) => b[1] - a[1])
+        .map(([color]) => color)[0] || "N/A";
+
+    return {
+      total: analyses.length,
+      thisMonth: analysesThisMonth,
+      mostCommonToothColor,
+    };
+  }, [analyses]);
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="bg-white rounded-lg shadow p-4">
+        <h3 className="text-sm font-medium text-gray-500">Total de Análises</h3>
+        <p className="text-2xl font-bold text-gray-800 mt-1">{stats.total}</p>
+      </div>
+      <div className="bg-white rounded-lg shadow p-4">
+        <h3 className="text-sm font-medium text-gray-500">Análises este Mês</h3>
+        <p className="text-2xl font-bold text-gray-800 mt-1">
+          {stats.thisMonth}
+        </p>
+      </div>
+      <div className="bg-white rounded-lg shadow p-4">
+        <h3 className="text-sm font-medium text-gray-500">
+          Cor de Dente Mais Comum
+        </h3>
+        <p className="text-2xl font-bold text-gray-800 mt-1">
+          {stats.mostCommonToothColor}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [analyses, setAnalyses] = useState<DentalAnalysis[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // Estado para o menu mobile
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
     const fetchUserData = async () => {
+      setLoading(true); // Inicia loading
+      setError(null);
       try {
         const {
           data: { session },
+          error: sessionError,
         } = await supabase.auth.getSession();
-        if (!session) {
+        if (sessionError || !session) {
+          console.error("Erro de sessão ou sessão inexistente:", sessionError);
           router.push("/login");
           return;
         }
         const userId = session.user.id;
+
+        // Buscar perfil
         const { data: profileData, error: profileError } = await supabase
           .from("profiles")
           .select("*")
           .eq("user_id", userId)
           .single();
-        // Não lançar erro se perfil não existir, apenas definir como null
         if (profileError && profileError.code !== "PGRST116") {
+          // Ignora erro se perfil não existe
           throw profileError;
         }
         setProfile(profileData);
 
+        // Buscar análises
         const { data: analysesData, error: analysesError } = await supabase
           .from("dental_analyses")
-          .select("*")
+          .select("*") // Seleciona todas as colunas
           .eq("user_id", userId)
           .order("created_at", { ascending: false });
-        if (analysesError) throw analysesError;
-        setAnalyses(analysesData || []);
+        if (analysesError) {
+          throw analysesError;
+        }
+        setAnalyses(analysesData || []); // Garante que seja um array
       } catch (error: any) {
-        console.error("Erro ao carregar dados do usuário:", error);
-        // Verificar se o erro é de perfil não encontrado e não mostrar ao usuário
+        console.error("Erro ao carregar dados do dashboard:", error);
         if (error.code !== "PGRST116") {
+          // Não mostra erro se for apenas perfil não encontrado
           setError(
-            "Não foi possível carregar seus dados. Tente novamente mais tarde."
+            "Não foi possível carregar seus dados. Tente recarregar a página."
           );
         }
       } finally {
-        setLoading(false);
+        setLoading(false); // Finaliza loading
       }
     };
     fetchUserData();
@@ -273,16 +479,42 @@ export default function Dashboard() {
     }
   };
 
+  const handleDeleteAnalysis = async (analysisId: string) => {
+    const confirmDelete = window.confirm(
+      "Tem certeza que deseja excluir esta análise? Esta ação não pode ser desfeita."
+    );
+    if (!confirmDelete) return;
+
+    setError(null); // Limpa erros anteriores
+    setDeleteLoading(analysisId); // Indica qual análise está sendo excluída
+
+    try {
+      const { error: deleteError } = await supabase
+        .from("dental_analyses")
+        .delete()
+        .match({ id: analysisId });
+
+      if (deleteError) throw deleteError;
+
+      setAnalyses((currentAnalyses) =>
+        currentAnalyses.filter((analysis) => analysis.id !== analysisId)
+      );
+      // Opcional: Mostrar notificação de sucesso
+    } catch (error: any) {
+      console.error("Erro ao excluir análise:", error);
+      setError("Não foi possível excluir a análise. Tente novamente.");
+    } finally {
+      setDeleteLoading(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 pb-20 md:pb-0">
-      {" "}
-      {/* Adiciona padding-bottom em mobile */}
       {/* Cabeçalho */}
       <header className="bg-white shadow-sm sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <h1 className="text-xl font-bold text-gray-900">DentalConnect</h1>
           <div className="flex items-center space-x-4">
-            {/* Botão Feed (visível em todos os tamanhos) */}
             <button
               onClick={() => router.push("/feed")}
               className="text-blue-600 hover:text-blue-800"
@@ -303,7 +535,6 @@ export default function Dashboard() {
                 />
               </svg>
             </button>
-            {/* Avatar (visível em todos os tamanhos) */}
             {profile && (
               <button
                 onClick={() => router.push("/settings")}
@@ -311,7 +542,7 @@ export default function Dashboard() {
                 title="Configurações"
               >
                 <Image
-                  src={profile.avatar_url || "/default-avatar.png"} // Usar uma imagem padrão
+                  src={profile.avatar_url || "/default-avatar.png"}
                   alt="Perfil"
                   width={32}
                   height={32}
@@ -319,7 +550,6 @@ export default function Dashboard() {
                 />
               </button>
             )}
-            {/* Botão Menu Hamburguer (apenas mobile) */}
             <button
               onClick={() => setIsMobileMenuOpen(true)}
               className="md:hidden text-gray-600 hover:text-gray-800"
@@ -343,11 +573,11 @@ export default function Dashboard() {
           </div>
         </div>
       </header>
+
       {/* Conteúdo principal */}
       <div className="flex">
-        {/* Menu de navegação lateral (Desktop) */}
+        {/* Menu Lateral Desktop (sem alterações) */}
         <aside className="fixed left-4 top-1/2 transform -translate-y-1/2 bg-white rounded-lg shadow-lg p-2 hidden md:flex flex-col space-y-2 z-10">
-          {/* Ícones do menu lateral desktop */}
           <button
             onClick={() => router.push("/settings")}
             className="p-2 hover:bg-gray-100 rounded-md"
@@ -453,385 +683,307 @@ export default function Dashboard() {
               />
             </svg>
           </button>
-          {/* Botão Logout Desktop */}
-          <div className="mt-auto pt-2 border-t border-gray-200">
-            <button
-              onClick={handleLogout}
-              className="flex items-center w-full p-2 hover:bg-red-50 rounded-md text-red-600"
-              title="Sair"
+          <button
+            onClick={handleLogout}
+            className="p-2 mt-auto hover:bg-red-50 rounded-md"
+            title="Sair"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.5}
+              stroke="currentColor"
+              className="w-6 h-6 text-red-600"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-                className="w-6 h-6"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"
-                />
-              </svg>
-            </button>
-          </div>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"
+              />
+            </svg>
+          </button>
         </aside>
 
-        {/* Conteúdo Principal da Página */}
-        <main className="flex-1 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:ml-20">
-          {" "}
-          {/* Adiciona margin-left em desktop */}
+        {/* Área principal do Dashboard */}
+        <main className="flex-1 max-w-4xl mx-auto px-4 py-8 md:pl-20">
           {loading ? (
             <div className="flex justify-center items-center h-64">
               <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
             </div>
           ) : error ? (
-            <div
-              className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-6"
-              role="alert"
-            >
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-6">
               <strong className="font-bold">Erro: </strong>
               <span className="block sm:inline">{error}</span>
               <button
-                onClick={() => setError(null)}
-                className="absolute top-0 bottom-0 right-0 px-4 py-3"
-                aria-label="Fechar erro"
+                onClick={() => window.location.reload()}
+                className="mt-2 bg-red-600 hover:bg-red-700 text-white py-1 px-3 rounded text-sm"
               >
-                <svg
-                  className="fill-current h-6 w-6 text-red-500"
-                  role="button"
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 20 20"
-                >
-                  <title>Fechar</title>
-                  <path d="M14.348 14.849a1.2 1.2 0 0 1-1.697 0L10 11.819l-2.651 3.029a1.2 1.2 0 1 1-1.697-1.697l2.758-3.15-2.759-3.152a1.2 1.2 0 1 1 1.697-1.697L10 8.183l2.651-3.031a1.2 1.2 0 1 1 1.697 1.697l-2.758 3.152 2.758 3.15a1.2 1.2 0 0 1 0 1.698z" />
-                </svg>
+                Tentar novamente
               </button>
             </div>
           ) : (
             <>
-              {/* Perfil do usuário */}
-              <div className="bg-white rounded-lg shadow overflow-hidden mb-6">
-                <div className="p-4 sm:p-6">
-                  <div className="flex items-center">
-                    <div className="w-16 h-16 rounded-full overflow-hidden mr-4 flex-shrink-0 bg-gray-200">
-                      {profile?.avatar_url && (
-                        <Image
-                          src={profile.avatar_url}
-                          alt={profile.name || "Usuário"}
-                          width={64}
-                          height={64}
-                          className="object-cover w-full h-full"
-                          onError={(e) => {
-                            e.currentTarget.src = "/default-avatar.png";
-                          }} // Fallback
-                        />
-                      )}
-                      {!profile?.avatar_url && (
-                        <Image
-                          src="/default-avatar.png"
-                          alt="Avatar padrão"
-                          width={64}
-                          height={64}
-                          className="object-cover w-full h-full"
-                        />
-                      )}
-                    </div>
-                    <div className="flex-grow min-w-0">
-                      <h2 className="text-lg sm:text-xl font-bold text-gray-900 truncate">
-                        {profile?.name || "Usuário"}
-                      </h2>
-                      <p className="text-sm sm:text-base text-gray-600 truncate">
-                        {profile?.type === "dentist"
-                          ? "Dentista"
-                          : profile?.type === "technician"
-                          ? "Protético"
-                          : "Tipo não definido"}
-                        {profile?.specialty && ` • ${profile.specialty}`}
-                      </p>
-                      {profile?.clinic_name && (
-                        <p className="text-xs sm:text-sm text-gray-500 truncate">
-                          {profile.clinic_name}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="mt-6 grid grid-cols-3 gap-2 text-center">
-                    <div>
-                      <p className="text-lg md:text-2xl font-bold text-gray-900">
-                        {analyses.length}
-                      </p>
-                      <p className="text-xs md:text-sm text-gray-600">
-                        Análises
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-lg md:text-2xl font-bold text-gray-900">
-                        0
-                      </p>
-                      <p className="text-xs md:text-sm text-gray-600">
-                        Conexões
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-lg md:text-2xl font-bold text-gray-900">
-                        0
-                      </p>
-                      <p className="text-xs md:text-sm text-gray-600">
-                        Mensagens
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-6">
-                    <button
-                      onClick={() => router.push("/settings")} // Redireciona para settings que deve conter a edição
-                      className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-2 px-4 rounded-md transition-colors"
-                    >
-                      Editar Perfil
-                    </button>
-                  </div>
+              {/* Saudação e Contagem de Análises */}
+              {profile && (
+                <div className="mb-6 p-4 bg-white rounded-lg shadow">
+                  <h2 className="text-xl font-semibold text-gray-800">
+                    Olá, {profile.name}!
+                  </h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Você tem{" "}
+                    <span className="font-bold text-blue-600">
+                      {analyses.length}
+                    </span>{" "}
+                    análise{analyses.length !== 1 ? "s" : ""} registrada
+                    {analyses.length !== 1 ? "s" : ""}.
+                  </p>
                 </div>
+              )}
+
+              {/* Atalhos Rápidos */}
+              <QuickActions router={router} />
+
+              {/* Estatísticas Resumidas */}
+              <StatsSummary analyses={analyses} />
+
+              {/* Gráfico de Análises por Mês */}
+              <div className="mb-6">
+                <MonthlyAnalysisChart analyses={analyses} />
               </div>
 
-              {/* Histórico de análises */}
+              {/* Histórico de Análises */}
               <div className="bg-white rounded-lg shadow overflow-hidden">
-                <div className="p-4 sm:p-6">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-bold text-gray-900">
-                      Histórico
-                    </h3>
+                <div className="p-4 border-b border-gray-200">
+                  <h2 className="text-lg font-semibold text-gray-800">
+                    Histórico de Análises
+                  </h2>
+                </div>
+
+                {analyses.length === 0 ? (
+                  <div className="p-6 text-center">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                      className="w-12 h-12 mx-auto text-gray-400 mb-3"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m6.75 12H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+                      />
+                    </svg>
+                    <p className="text-gray-600 mb-2">
+                      Nenhuma análise encontrada
+                    </p>
                     <button
                       onClick={() => router.push("/analyze")}
-                      className="bg-blue-600 text-white py-1.5 px-3 rounded-md hover:bg-blue-700 flex items-center text-sm font-medium transition-colors"
+                      className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm transition-colors"
                     >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        strokeWidth={1.5}
-                        stroke="currentColor"
-                        className="w-5 h-5 mr-1"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M12 4.5v15m7.5-7.5h-15"
-                        />
-                      </svg>
+                      <PlusCircleIcon className="w-5 h-5 mr-2" />
                       Nova Análise
                     </button>
                   </div>
-
-                  {analyses.length === 0 ? (
-                    <div className="text-center py-8">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        strokeWidth={1.5}
-                        stroke="currentColor"
-                        className="w-12 h-12 mx-auto text-gray-400"
+                ) : (
+                  <div className="divide-y divide-gray-200">
+                    {analyses.map((analysis) => (
+                      <div
+                        key={analysis.id}
+                        className="p-4 hover:bg-gray-50 transition-colors"
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 1-6.23-.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21a48.25 48.25 0 0 1-8.135-.687c-1.718-.293-2.3-2.379-1.067-3.61L5 14.5"
-                        />
-                      </svg>
-                      <h4 className="mt-2 text-gray-600">
-                        Nenhuma análise encontrada
-                      </h4>
-                      <p className="text-gray-500 text-sm mt-1">
-                        Comece uma nova análise para ver seu histórico aqui.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {analyses.map((analysis) => (
-                        <div
-                          key={analysis.id}
-                          className="border border-gray-200 rounded-lg overflow-hidden flex flex-col"
-                        >
-                          <div className="aspect-square relative bg-gray-200 w-full">
-                            <Image
-                              src={analysis.image_url}
-                              alt="Análise dental"
-                              fill
-                              sizes="(max-width: 640px) 100vw, 50vw"
-                              className="object-cover"
-                              onError={(e) => {
-                                e.currentTarget.src = "/placeholder-image.png";
-                              }} // Placeholder
-                            />
-                          </div>
-                          <div className="p-3 sm:p-4 flex-grow flex flex-col justify-between">
-                            <div>
-                              <p className="text-xs sm:text-sm text-gray-500 mb-2">
-                                {new Date(
-                                  analysis.created_at
-                                ).toLocaleDateString("pt-BR", {
-                                  day: "2-digit",
-                                  month: "short",
-                                  year: "numeric",
-                                })}
-                              </p>
-                              <div className="grid grid-cols-2 gap-2 text-xs sm:text-sm mb-2">
-                                <div>
-                                  <span className="text-gray-500">Dente:</span>
-                                  <div className="flex items-center mt-0.5">
-                                    <div
-                                      className="w-3 h-3 sm:w-4 sm:h-4 rounded-full mr-1 border border-gray-300"
-                                      style={{
-                                        backgroundColor:
-                                          analysis.tooth_color_hex,
-                                      }}
-                                    ></div>
-                                    <span className="font-medium">
-                                      {analysis.tooth_color_code}
-                                    </span>
-                                  </div>
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start space-x-4">
+                            <div className="w-16 h-16 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
+                              {analysis.image_url ? (
+                                <Image
+                                  src={analysis.image_url}
+                                  alt="Imagem da análise"
+                                  width={64}
+                                  height={64}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    strokeWidth={1.5}
+                                    stroke="currentColor"
+                                    className="w-8 h-8"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"
+                                    />
+                                  </svg>
                                 </div>
-                                <div>
-                                  <span className="text-gray-500">
-                                    Gengiva:
-                                  </span>
-                                  <div className="flex items-center mt-0.5">
-                                    <div
-                                      className="w-3 h-3 sm:w-4 sm:h-4 rounded-full mr-1 border border-gray-300"
-                                      style={{
-                                        backgroundColor: analysis.gum_color_hex,
-                                      }}
-                                    ></div>
-                                    <span className="font-medium">
-                                      {analysis.gum_color_code}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                              {analysis.notes && (
-                                <p className="mt-1 text-xs sm:text-sm text-gray-700 line-clamp-2">
-                                  {analysis.notes}
-                                </p>
                               )}
                             </div>
-                            <div className="mt-3 flex justify-end">
-                              <button
-                                // onClick={() => router.push(`/analysis/${analysis.id}`)} // Link para detalhes da análise (a implementar)
-                                className="text-blue-600 hover:text-blue-800 text-xs sm:text-sm font-medium"
-                              >
-                                Ver detalhes
-                              </button>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">
+                                Análise de{" "}
+                                {new Date(
+                                  analysis.created_at
+                                ).toLocaleDateString("pt-BR")}
+                              </p>
+                              <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600">
+                                <p>
+                                  <span className="font-semibold text-gray-700">
+                                    Cor Dente:
+                                  </span>{" "}
+                                  {analysis.tooth_color_code || "N/I"}
+                                </p>
+                                <p>
+                                  <span className="font-semibold text-gray-700">
+                                    Cor Gengiva:
+                                  </span>{" "}
+                                  {analysis.gum_color_code || "N/I"}
+                                </p>
+                                {analysis.notes && (
+                                  <p className="col-span-2 mt-1">
+                                    <span className="font-semibold text-gray-700">
+                                      Notas:
+                                    </span>{" "}
+                                    {analysis.notes}
+                                  </p>
+                                )}
+                              </div>
                             </div>
                           </div>
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() =>
+                                router.push(`/analyze/${analysis.id}`)
+                              }
+                              className="text-blue-600 hover:text-blue-800 p-1"
+                              title="Ver detalhes"
+                            >
+                              <DocumentChartBarIcon className="w-5 h-5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteAnalysis(analysis.id)}
+                              disabled={deleteLoading === analysis.id}
+                              className="text-red-600 hover:text-red-800 p-1 disabled:opacity-50"
+                              title="Excluir análise"
+                            >
+                              {deleteLoading === analysis.id ? (
+                                <div className="w-5 h-5 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                              ) : (
+                                <TrashIcon className="w-5 h-5" />
+                              )}
+                            </button>
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </>
           )}
         </main>
       </div>
-      {/* Navegação inferior (Mobile) */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 py-1 md:hidden z-10">
-        <div className="max-w-5xl mx-auto px-2 sm:px-6 lg:px-8 flex justify-around">
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="flex flex-col items-center text-blue-600 p-1 w-1/4"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className="w-6 h-6"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"
-              />
-            </svg>
-            <span className="text-xs mt-0.5">Início</span>
-          </button>
-          <button
-            onClick={() => router.push("/feed")}
-            className="flex flex-col items-center text-gray-500 p-1 w-1/4"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className="w-6 h-6"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5M6 7.5h3v3H6v-3Z"
-              />
-            </svg>
-            <span className="text-xs mt-0.5">Feed</span>
-          </button>
-          <button
-            onClick={() => router.push("/analyze")}
-            className="flex flex-col items-center text-gray-500 p-1 w-1/4"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className="w-6 h-6"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z"
-              />
-            </svg>
-            <span className="text-xs mt-0.5">Analisar</span>
-          </button>
-          <button
-            onClick={() => router.push("/chat")}
-            className="flex flex-col items-center text-gray-500 p-1 w-1/4"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className="w-6 h-6"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z"
-              />
-            </svg>
-            <span className="text-xs mt-0.5">Chat</span>
-          </button>
-        </div>
-      </nav>
-      {/* Renderiza o Sidebar Mobile */}
+
+      {/* Menu Mobile */}
       <MobileSidebar
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
         router={router}
       />
+
+      {/* Barra de Navegação Inferior Mobile */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around py-2 md:hidden z-20">
+        <button
+          onClick={() => router.push("/dashboard")}
+          className="flex flex-col items-center text-blue-600"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.5}
+            stroke="currentColor"
+            className="w-6 h-6"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h7.5"
+            />
+          </svg>
+          <span className="text-xs">Início</span>
+        </button>
+        <button
+          onClick={() => router.push("/analyze")}
+          className="flex flex-col items-center text-gray-600 hover:text-blue-600"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.5}
+            stroke="currentColor"
+            className="w-6 h-6"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z"
+            />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z"
+            />
+          </svg>
+          <span className="text-xs">Analisar</span>
+        </button>
+        <button
+          onClick={() => router.push("/feed")}
+          className="flex flex-col items-center text-gray-600 hover:text-blue-600"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.5}
+            stroke="currentColor"
+            className="w-6 h-6"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5M6 7.5h3v3H6v-3Z"
+            />
+          </svg>
+          <span className="text-xs">Feed</span>
+        </button>
+        <button
+          onClick={() => router.push("/chat")}
+          className="flex flex-col items-center text-gray-600 hover:text-blue-600"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.5}
+            stroke="currentColor"
+            className="w-6 h-6"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z"
+            />
+          </svg>
+          <span className="text-xs">Chat</span>
+        </button>
+      </nav>
     </div>
   );
 }
