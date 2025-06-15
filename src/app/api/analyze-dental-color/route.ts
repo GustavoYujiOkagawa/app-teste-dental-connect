@@ -41,17 +41,16 @@ export async function POST(req: NextRequest) {
               // Instrução clara para retornar JSON, necessária para o Modo JSON
               // Reforça que todos os campos são desejados, mas o código tratará ausências.
               text: `
-Você é um especialista em odontologia estética com profundo conhecimento em análise de cor dentária e gengival. Analise cuidadosamente a imagem fornecida e me retorne APENAS um objeto JSON com os seguintes campos:
+Você é um assistente de análise de imagem especializado em identificar cores da escala vita e tonalidades. Analise a imagem fornecida e retorne APENAS um objeto JSON válido no seguinte formato, sem nenhuma explicação ou texto adicional antes ou depois do JSON. Identifique as cores predominantes nas áreas indicadas. Se alguma cor não for claramente visível ou identificável, use um valor padrão como "Não identificado" para códigos ou "#N/A" para hexadecimais.
 
-toothColorCode: código da cor do dente segundo a escala Vita (ex: A1, B2, C3, etc.)
+{
+  "elementoPrincipalCorCodigo":  "Código de cor/tonalidade baseado na escala VITA (ex: A1 para branco-amarelado claro, B1 para branco-azulado claro)",
+  "elementoPrincipalCorHex": "#hexadecimal",
+  "areaCircundanteCorCodigo": "Descrição da cor da área ao redor (ex: Rosa Claro, Vermelho Suave)",
+  "areaCircundanteCorHex": "#hexadecimal"
+}
 
-toothColorHex: código hexadecimal correspondente à cor do dente identificada
-
-gumColorCode: código da cor da gengiva segundo a escala STG (ex: STG1, STG2, etc.)
-
-gumColorHex: código hexadecimal correspondente à cor da gengiva identificada
-
-Não inclua nenhuma explicação ou texto adicional — apenas o objeto JSON no formato solicitado.
+Responda APENAS com o objeto JSON.
               `.trim(),
             },
             {

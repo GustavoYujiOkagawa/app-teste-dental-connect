@@ -355,10 +355,13 @@ export default function Feed() {
                   {currentUser?.id !== post.user_id && (
                     <button
                       onClick={() => handleChat(post.user_id)}
-                      className="text-gray-600 hover:text-blue-600 p-1 rounded-full hover:bg-blue-50 transition-colors"
-                      title="Iniciar Chat"
+                      className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 py-1 rounded-md transition-colors"
+                      title={`Enviar mensagem para ${
+                        post.profiles?.name || "usuário"
+                      }`}
                     >
                       <PaperAirplaneIcon className="w-5 h-5" />
+                      <span>Mensagem</span>
                     </button>
                   )}
                 </div>
